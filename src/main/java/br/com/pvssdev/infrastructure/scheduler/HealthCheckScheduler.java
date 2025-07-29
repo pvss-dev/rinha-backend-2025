@@ -1,0 +1,45 @@
+package br.com.pvssdev.infrastructure.scheduler;
+
+import br.com.pvssdev.infrastructure.client.DefaultHealthClient;
+import br.com.pvssdev.infrastructure.client.FallbackHealthClient;
+import br.com.pvssdev.infrastructure.client.dto.HealthStatus;
+import io.quarkus.logging.Log;
+import io.quarkus.scheduler.Scheduled;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import org.eclipse.microprofile.rest.client.inject.RestClient;
+
+@ApplicationScoped
+public class HealthCheckScheduler {
+    @Inject
+    ProcessorHealthCache healthCache;
+
+    @Inject
+    @RestClient
+    DefaultHealthClient defaultHealthClient;
+
+    @Inject
+    @RestClient
+    FallbackHealthClient fallbackHealthClient;
+
+    @Scheduled(every = "5s", identity = "health-check-task")
+    void pollHealthStatus() {
+        defaultHealthClient.checkHealth()
+                .subscribe().with(
+                        status -> healthCache.updateDefaultStatus(status),
+                        failure -> {
+                            Log.warn("Failed to check health of DEFAULT processor", failure);
+                            healthCache.updateDefaultStatus(new HealthStatus(true, Integer.MAX_VALUE));
+                        }
+                );
+
+        fallbackHealthClient.checkHealth()
+                .subscribe().with(
+                        status -> healthCache.updateFallbackStatus(status),
+                        failure -> {
+                            Log.warn("Failed to check health of FALLBACK processor", failure);
+                            healthCache.updateFallbackStatus(new HealthStatus(true, Integer.MAX_VALUE));
+                        }
+                );
+    }
+}
