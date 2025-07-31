@@ -7,6 +7,7 @@ import br.com.pvssdev.infrastructure.client.DefaultPaymentProcessorClient;
 import br.com.pvssdev.infrastructure.client.FallbackPaymentProcessorClient;
 import br.com.pvssdev.infrastructure.client.dto.ProcessorRequest;
 import br.com.pvssdev.infrastructure.persistence.PanachePaymentRepository;
+import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.quarkus.logging.Log;
 import io.quarkus.scheduler.Scheduled;
 import io.smallrye.mutiny.Multi;
@@ -33,6 +34,7 @@ public class PaymentProcessorWorker {
     @ConfigProperty(name = "processor.batch.size")
     int batchSize;
 
+    @WithTransaction
     @Scheduled(every = "{processor.schedule.every}")
     void processPendingPayments() {
         paymentRepository.findPendingPayments(batchSize)
