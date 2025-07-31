@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.List;
 
 public interface PaymentRepository {
+
     Uni<Void> save(Payment payment);
 
     Uni<List<SummaryQueryDto>> getSummary(Instant from, Instant to);

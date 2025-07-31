@@ -8,6 +8,7 @@ import org.eclipse.microprofile.faulttolerance.Timeout;
 
 @Path("/payments/service-health")
 public interface PaymentProcessorHealthClient {
+
     @GET
     @Timeout(500)
     Uni<HealthStatus> checkHealth();

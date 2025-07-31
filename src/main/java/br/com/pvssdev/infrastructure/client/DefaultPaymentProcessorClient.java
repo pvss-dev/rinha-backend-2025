@@ -12,6 +12,7 @@ import jakarta.ws.rs.Path;
 @Path("/payments")
 @RegisterRestClient(configKey = "default-processor")
 public interface DefaultPaymentProcessorClient {
+
     @POST
     @Timeout(2000)
     @CircuitBreaker(requestVolumeThreshold = 20, failureRatio = 0.5, delay = 5000)

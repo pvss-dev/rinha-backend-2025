@@ -10,7 +10,6 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "payments")
-
 public class Payment extends PanacheEntity {
 
     @Column(unique = true, nullable = false)
@@ -20,19 +19,26 @@ public class Payment extends PanacheEntity {
     public BigDecimal amount;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
     public ProcessorType processor;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    public PaymentStatus status;
 
     @Column(nullable = false)
     public Instant createdAt;
 
+    @Column
+    public Instant updatedAt;
+
     public Payment() {
     }
 
-    public Payment(PaymentRequestDto request, ProcessorType processor) {
+    public Payment(PaymentRequestDto request) {
         this.correlationId = request.correlationId();
         this.amount = request.amount();
-        this.processor = processor;
+        this.status = PaymentStatus.PENDING;
         this.createdAt = Instant.now();
+        this.updatedAt = this.createdAt;
     }
 }
