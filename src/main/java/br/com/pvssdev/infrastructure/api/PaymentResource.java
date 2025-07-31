@@ -2,6 +2,7 @@ package br.com.pvssdev.infrastructure.api;
 
 import br.com.pvssdev.application.dto.PaymentRequestDto;
 import br.com.pvssdev.application.service.PaymentService;
+import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -32,6 +33,7 @@ public class PaymentResource {
     @GET
     @Path("/payments-summary")
     @Produces(MediaType.APPLICATION_JSON)
+    @WithTransaction
     public Uni<Response> getSummary(@QueryParam("from") String fromStr, @QueryParam("to") String toStr) {
         try {
             Instant from = (fromStr != null) ? Instant.parse(fromStr) : Instant.EPOCH;
