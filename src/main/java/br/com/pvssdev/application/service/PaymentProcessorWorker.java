@@ -36,15 +36,13 @@ public class PaymentProcessorWorker {
 
     @WithTransaction
     @Scheduled(every = "{processor.schedule.every}")
-    void processPendingPayments() {
-        paymentRepository.findPendingPayments(batchSize)
+    Uni<Void> processPendingPayments() {
+        return paymentRepository.findPendingPayments(batchSize)
                 .onItem().ifNotNull().transformToMulti(payments -> Multi.createFrom().iterable(payments))
                 .onItem().transformToUniAndMerge(this::tryProcessSinglePayment)
-                .subscribe().with(
-                        item -> {
-                        },
-                        failure -> Log.error("Error processing payment batch", failure)
-                );
+                .collect().asList()
+                .replaceWithVoid()
+                .onFailure().invoke(failure -> Log.error("Error processing payment batch", failure));
     }
 
     private Uni<Void> tryProcessSinglePayment(Payment payment) {
