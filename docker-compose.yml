@@ -68,6 +68,6 @@ services:
 networks:
   payment-processor-net:
     external: true
-    name: rinha-de-backend-2025-q1_payment-processor-net
+    name: payment-processor
   rinha-net:
     driver: bridge
