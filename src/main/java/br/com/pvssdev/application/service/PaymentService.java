@@ -7,6 +7,7 @@ import br.com.pvssdev.domain.model.Payment;
 import br.com.pvssdev.domain.model.ProcessorType;
 import br.com.pvssdev.infrastructure.persistence.PanachePaymentRepository;
 import br.com.pvssdev.infrastructure.persistence.SummaryQueryDto;
+import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -22,11 +23,13 @@ public class PaymentService {
     @Inject
     PanachePaymentRepository paymentRepository;
 
+    @WithTransaction
     public Uni<Void> processPayment(PaymentRequestDto requestDto) {
         Payment newPayment = new Payment(requestDto);
         return paymentRepository.save(newPayment);
     }
 
+    @WithTransaction
     public Uni<PaymentsSummaryDto> getSummary(Instant from, Instant to) {
         return paymentRepository.getSummary(from, to).map(results -> {
             Map<ProcessorType, ProcessorDetailDto> summaryMap = results.stream()
