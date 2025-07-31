@@ -22,21 +22,18 @@ public class PaymentResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Uni<Response> createPayment(PaymentRequestDto request) {
-        // Validação básica de entrada pode ser adicionada aqui com @Valid
         return paymentService.processPayment(request)
-                .map(v -> Response.noContent().build()) // Retorna 204 No Content em caso de sucesso
+                .map(v -> Response.noContent().build())
                 .onFailure().recoverWithItem(e -> {
-                    // Resposta genérica para falha de processamento (ex: ambos os processadores offline)
                     return Response.status(Response.Status.SERVICE_UNAVAILABLE).build();
                 });
     }
 
     @GET
-    @Path("/payments-summary") // [cite: 185]
+    @Path("/payments-summary")
     @Produces(MediaType.APPLICATION_JSON)
     public Uni<Response> getSummary(@QueryParam("from") String fromStr, @QueryParam("to") String toStr) {
         try {
-            // Se os parâmetros não forem fornecidos, use um intervalo padrão amplo.
             Instant from = (fromStr != null) ? Instant.parse(fromStr) : Instant.EPOCH;
             Instant to = (toStr != null) ? Instant.parse(toStr) : Instant.now();
 
