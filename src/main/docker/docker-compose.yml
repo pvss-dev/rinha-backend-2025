@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    hostname: db
+    environment:
+      - POSTGRES_USER=rinha
+      - POSTGRES_PASSWORD=rinha
+      - POSTGRES_DB=rinha
+    command: postgres -c max_connections=450 -c shared_buffers=32MB -c effective_cache_size=96MB -c work_mem=3MB -c maintenance_work_mem=12MB -c synchronous_commit=off -c fsync=off
+    networks:
+      - rinha-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U rinha -d rinha" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.4"
+          memory: "140MB"
+
+  api01: &api
+    image: pvssdev/rinha-backend-2025:latest
+    hostname: api01
+    environment:
+      - QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://db:5432/rinha
+      - QUARKUS_DATASOURCE_USERNAME=rinha
+      - QUARKUS_DATASOURCE_PASSWORD=rinha
+      - PROCESSOR_SCHEDULE_EVERY=2s
+      - PROCESSOR_BATCH_SIZE=100
+    networks:
+      - payment-processor-net
+      - rinha-net
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.45"
+          memory: "80MB"
+
+  api02:
+    <<: *api
+    hostname: api02
+
+  lb:
+    image: nginx:1.27.0-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "9999:9999"
+    networks:
+      - rinha-net
+    depends_on:
+      - api01
+      - api02
+    deploy:
+      resources:
+        limits:
+          cpus: "0.2"
+          memory: "50MB"
+
+networks:
+  payment-processor-net:
+    external: true
+    name: rinha-de-backend-2025-q1_payment-processor-net
+  rinha-net:
+    driver: bridge
