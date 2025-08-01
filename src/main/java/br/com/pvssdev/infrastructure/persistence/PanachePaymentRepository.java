@@ -8,6 +8,7 @@ import io.quarkus.hibernate.reactive.panache.PanacheRepositoryBase;
 import io.quarkus.panache.common.Parameters;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.persistence.LockModeType;
 
 import java.time.Instant;
 import java.util.List;
@@ -21,7 +22,11 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
     }
 
     public Uni<List<Payment>> findPendingPayments(int limit) {
-        return find("status", PaymentStatus.PENDING).page(0, limit).list();
+        return find("status", PaymentStatus.PENDING)
+                .page(0, limit)
+                .withLock(LockModeType.PESSIMISTIC_WRITE)
+                .withHint("jakarta.persistence.lock.timeout", 0)
+                .list();
     }
 
     public Uni<Integer> updatePaymentStatus(Long id, ProcessorType processor, PaymentStatus status) {

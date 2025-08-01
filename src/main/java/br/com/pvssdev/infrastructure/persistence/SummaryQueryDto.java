@@ -6,7 +6,7 @@ import java.math.BigDecimal;
 
 public record SummaryQueryDto(
         ProcessorType processor,
-        long totalRequests,
+        Long totalRequests,
         BigDecimal totalAmount
 ) {
 }
