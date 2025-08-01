@@ -40,7 +40,7 @@ public class PaymentProcessorWorker {
     int batchSize;
 
     @WithTransaction
-    @Scheduled(every = "{processor.schedule.every}")
+    @Scheduled(every = "02s")
     Uni<Void> processPendingPayments() {
         return paymentRepository.findPendingPayments(batchSize)
                 .onItem().ifNotNull().transformToMulti(payments -> Multi.createFrom().iterable(payments))

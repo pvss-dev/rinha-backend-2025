@@ -10,6 +10,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
+import java.time.Duration;
+
 @ApplicationScoped
 public class HealthCheckScheduler {
 
@@ -27,22 +29,26 @@ public class HealthCheckScheduler {
     @Scheduled(every = "5s")
     @Blocking
     public void pollHealthStatus() {
-        defaultHealthClient.checkHealth()
-                .subscribe().with(
-                        status -> healthCache.updateDefaultStatus(status),
-                        failure -> {
-                            Log.warn("Failed to check health of DEFAULT processor", failure);
-                            healthCache.updateDefaultStatus(new HealthStatus(true, Integer.MAX_VALUE));
-                        }
-                );
+        try {
+            HealthStatus s = defaultHealthClient
+                    .checkHealth()
+                    .await()
+                    .atMost(Duration.ofSeconds(2));
+            healthCache.updateDefaultStatus(s);
+        } catch (Exception t) {
+            Log.warn("Failed to check health of DEFAULT processor", t);
+            healthCache.updateDefaultStatus(new HealthStatus(true, Integer.MAX_VALUE));
+        }
 
-        fallbackHealthClient.checkHealth()
-                .subscribe().with(
-                        status -> healthCache.updateFallbackStatus(status),
-                        failure -> {
-                            Log.warn("Failed to check health of FALLBACK processor", failure);
-                            healthCache.updateFallbackStatus(new HealthStatus(true, Integer.MAX_VALUE));
-                        }
-                );
+        try {
+            HealthStatus s = fallbackHealthClient
+                    .checkHealth()
+                    .await()
+                    .atMost(Duration.ofSeconds(2));
+            healthCache.updateFallbackStatus(s);
+        } catch (Exception t) {
+            Log.warn("Failed to check health of FALLBACK processor", t);
+            healthCache.updateFallbackStatus(new HealthStatus(true, Integer.MAX_VALUE));
+        }
     }
 }
