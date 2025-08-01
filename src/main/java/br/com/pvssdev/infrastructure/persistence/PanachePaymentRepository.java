@@ -60,21 +60,33 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
 
     @Override
     public Uni<List<SummaryQueryDto>> getSummary(Instant from, Instant to) {
-        String jpql = """
-                    SELECT p.processor       AS processor,
-                           COUNT(p)          AS totalRequests,
-                           SUM(p.amount)     AS totalAmount
-                      FROM Payment p
-                     WHERE p.processor IS NOT NULL
-                       AND (:from IS NULL OR p.createdAt >= :from)
-                       AND (:to   IS NULL OR p.createdAt <= :to)
-                  GROUP BY p.processor
-                """;
+        var jpql = new StringBuilder("""
+                SELECT new br.com.pvssdev.infrastructure.persistence.SummaryQueryDto(
+                    p.processor,
+                    COUNT(p.id),
+                    SUM(p.amount)
+                )
+                FROM Payment p
+                WHERE p.processor IS NOT NULL
+                """);
+        if (from != null) {
+            jpql.append(" AND p.createdAt >= :from");
+        }
+        if (to != null) {
+            jpql.append(" AND p.createdAt <= :to");
+        }
+        jpql.append(" GROUP BY p.processor");
 
-        return find(jpql, Parameters
-                .with("from", from)
-                .and("to", to))
-                .project(SummaryQueryDto.class)
-                .list();
+        return Panache.getSession()
+                .chain(session -> {
+                    var query = session.createQuery(jpql.toString(), SummaryQueryDto.class);
+                    if (from != null) {
+                        query.setParameter("from", from);
+                    }
+                    if (to != null) {
+                        query.setParameter("to", to);
+                    }
+                    return query.getResultList();
+                });
     }
 }
