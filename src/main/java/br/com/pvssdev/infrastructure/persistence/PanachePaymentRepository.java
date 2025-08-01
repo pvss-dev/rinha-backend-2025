@@ -19,7 +19,7 @@ import java.util.List;
 public class PanachePaymentRepository implements PaymentRepository, PanacheRepositoryBase<Payment, Long> {
 
     @Inject
-    Mutiny.Session session;
+    Mutiny.SessionFactory sessionFactory;
 
     @Override
     public Uni<Void> save(Payment payment) {
@@ -63,6 +63,7 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
         );
     }
 
+    @Override
     public Uni<List<SummaryQueryDto>> getSummary(Instant from, Instant to) {
         String jpql = """
                               SELECT new br.com.pvssdev.infrastructure.persistence.SummaryQueryDto(
@@ -76,9 +77,11 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
                       + (from != null ? " AND p.createdAt >= :from" : "")
                       + (to != null ? " AND p.createdAt <= :to" : "")
                       + " GROUP BY p.processor";
-        var query = session.createQuery(jpql, SummaryQueryDto.class);
-        if (from != null) query.setParameter("from", from);
-        if (to != null) query.setParameter("to", to);
-        return query.getResultList();
+        return sessionFactory.withSession(session -> {
+            var query = session.createQuery(jpql, SummaryQueryDto.class);
+            if (from != null) query.setParameter("from", from);
+            if (to != null) query.setParameter("to", to);
+            return query.getResultList();
+        });
     }
 }
