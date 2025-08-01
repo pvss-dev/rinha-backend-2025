@@ -4,11 +4,12 @@ import br.com.pvssdev.domain.model.Payment;
 import br.com.pvssdev.domain.model.PaymentStatus;
 import br.com.pvssdev.domain.model.ProcessorType;
 import br.com.pvssdev.domain.repository.PaymentRepository;
-import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.hibernate.reactive.panache.PanacheRepositoryBase;
 import io.quarkus.panache.common.Parameters;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import org.hibernate.reactive.mutiny.Mutiny;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,17 +17,21 @@ import java.util.List;
 @ApplicationScoped
 public class PanachePaymentRepository implements PaymentRepository, PanacheRepositoryBase<Payment, Long> {
 
+    @Inject
+    Mutiny.SessionFactory sf;
+
     @Override
     public Uni<Void> save(Payment payment) {
         return persist(payment).replaceWithVoid();
     }
 
-    public Uni<List<Payment>> findPendingPayments(int limit) {
-        return Panache.getSession().chain(session ->
+    public Uni<List<Payment>> findAndLockPendingPayments(int limit) {
+        return sf.withSession(session ->
                 session.createNativeQuery(
-                                "SELECT * FROM payments WHERE status = 'PENDING' LIMIT :limit FOR UPDATE SKIP LOCKED",
-                                Payment.class
-                        )
+                                """
+                                        SELECT * FROM payments WHERE status = 'PENDING' ORDER BY "createdAt" ASC LIMIT :limit FOR UPDATE SKIP LOCKED
+                                        """,
+                                Payment.class)
                         .setParameter("limit", limit)
                         .getResultList()
         );
@@ -60,33 +65,14 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
 
     @Override
     public Uni<List<SummaryQueryDto>> getSummary(Instant from, Instant to) {
-        var jpql = new StringBuilder("""
-                SELECT new br.com.pvssdev.infrastructure.persistence.SummaryQueryDto(
-                    p.processor,
-                    COUNT(p.id),
-                    SUM(p.amount)
-                )
-                FROM Payment p
-                WHERE p.processor IS NOT NULL
-                """);
-        if (from != null) {
-            jpql.append(" AND p.createdAt >= :from");
-        }
-        if (to != null) {
-            jpql.append(" AND p.createdAt <= :to");
-        }
-        jpql.append(" GROUP BY p.processor");
-
-        return Panache.getSession()
-                .chain(session -> {
-                    var query = session.createQuery(jpql.toString(), SummaryQueryDto.class);
-                    if (from != null) {
-                        query.setParameter("from", from);
-                    }
-                    if (to != null) {
-                        query.setParameter("to", to);
-                    }
-                    return query.getResultList();
-                });
+        String query = """
+                    SELECT p.processor as processor, COUNT(p.id) as totalRequests, SUM(p.amount) as totalAmount
+                    FROM Payment p
+                    WHERE p.createdAt >= :from AND p.createdAt <= :to AND p.processor IS NOT NULL
+                    GROUP BY p.processor
+                """;
+        return find(query, Parameters.with("from", from).and("to", to))
+                .project(SummaryQueryDto.class)
+                .list();
     }
 }

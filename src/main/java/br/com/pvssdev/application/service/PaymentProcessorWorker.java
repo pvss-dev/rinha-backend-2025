@@ -40,38 +40,46 @@ public class PaymentProcessorWorker {
     int batchSize;
 
     @WithTransaction
-    @Scheduled(every = "02s")
-    Uni<Void> processPendingPayments() {
-        return paymentRepository.findPendingPayments(batchSize)
+    @Scheduled(every = "{processor.schedule.every}", concurrentExecution = Scheduled.ConcurrentExecution.SKIP)
+    public Uni<Void> processPendingPayments() {
+        return paymentRepository.findAndLockPendingPayments(batchSize)
                 .onItem().ifNotNull().transformToMulti(payments -> Multi.createFrom().iterable(payments))
-                .onItem().transformToUniAndMerge(this::tryProcessSinglePayment)
+                .onItem().transformToUniAndMerge(this::processSinglePaymentWithHealthCheck)
                 .collect().asList()
                 .replaceWithVoid()
                 .onFailure().invoke(failure -> Log.error("Error processing payment batch", failure));
     }
 
-    private Uni<Void> tryProcessSinglePayment(Payment payment) {
+    private Uni<Void> processSinglePaymentWithHealthCheck(Payment payment) {
         ProcessorRequest processorRequest = new ProcessorRequest(payment.correlationId, payment.amount, payment.createdAt);
-        HealthStatus defaultHealth = healthCache.getDefaultStatus();
 
-        if (defaultHealth.failing()) {
-            Log.warnf("Default processor is marked as failing. Skipping straight to FALLBACK for payment %s.", payment.correlationId);
-            return executeFallback(payment, processorRequest);
+        HealthStatus defaultStatus = healthCache.getDefaultStatus();
+
+        if (!defaultStatus.failing()) {
+            return defaultProcessor.process(processorRequest)
+                    .onItem().transformToUni(response -> {
+                        Log.infof("Payment %s processed by DEFAULT.", payment.correlationId);
+                        return paymentRepository.updatePaymentStatus(payment.id, ProcessorType.DEFAULT, PaymentStatus.PROCESSED_DEFAULT)
+                                .replaceWithVoid();
+                    })
+                    .onFailure().recoverWithUni(failure -> {
+                        Log.warnf(failure, "Failed on DEFAULT for payment %s despite health check. Trying FALLBACK.", payment.correlationId);
+                        return executeFallback(payment, processorRequest);
+                    });
         }
 
-        return defaultProcessor.process(processorRequest)
-                .onItem().transformToUni(response -> {
-                    Log.infof("Payment %s processed by DEFAULT.", payment.correlationId);
-                    return paymentRepository.updatePaymentStatus(payment.id, ProcessorType.DEFAULT, PaymentStatus.PROCESSED_DEFAULT)
-                            .replaceWithVoid();
-                })
-                .onFailure().recoverWithUni(failure -> {
-                    Log.warnf(failure, "Failed on DEFAULT for payment %s. Trying FALLBACK.", payment.correlationId);
-                    return executeFallback(payment, processorRequest);
-                });
+        Log.warnf("DEFAULT processor is failing according to health check. Directly trying FALLBACK for payment %s.", payment.correlationId);
+        return executeFallback(payment, processorRequest);
     }
 
     private Uni<Void> executeFallback(Payment payment, ProcessorRequest processorRequest) {
+        HealthStatus fallbackStatus = healthCache.getFallbackStatus();
+
+        if (fallbackStatus.failing()) {
+            Log.errorf("FATAL: Both processors are failing. Marking payment %s as FAILED without attempting call.", payment.correlationId);
+            return paymentRepository.updatePaymentAsFailed(payment.id).replaceWithVoid();
+        }
+
         return fallbackProcessor.process(processorRequest)
                 .onItem().transformToUni(response -> {
                     Log.infof("Payment %s processed by FALLBACK.", payment.correlationId);
