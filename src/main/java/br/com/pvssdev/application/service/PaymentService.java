@@ -31,8 +31,8 @@ public class PaymentService {
         return paymentRepository.getSummary(from, to).map(results -> {
             Map<ProcessorType, ProcessorDetailDto> summaryMap = results.stream()
                     .collect(Collectors.toMap(
-                            SummaryQueryDto::processor,
-                            r -> new ProcessorDetailDto(r.totalRequests(), r.totalAmount())
+                            SummaryQueryDto::getProcessor,
+                            r -> new ProcessorDetailDto(r.getTotalRequests(), r.getTotalAmount())
                     ));
             var defaultSummary = summaryMap.getOrDefault(ProcessorType.DEFAULT, new ProcessorDetailDto(0L, BigDecimal.ZERO));
             var fallbackSummary = summaryMap.getOrDefault(ProcessorType.FALLBACK, new ProcessorDetailDto(0L, BigDecimal.ZERO));

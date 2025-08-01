@@ -9,12 +9,17 @@ import io.quarkus.hibernate.reactive.panache.PanacheRepositoryBase;
 import io.quarkus.panache.common.Parameters;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import org.hibernate.reactive.mutiny.Mutiny;
 
 import java.time.Instant;
 import java.util.List;
 
 @ApplicationScoped
 public class PanachePaymentRepository implements PaymentRepository, PanacheRepositoryBase<Payment, Long> {
+
+    @Inject
+    Mutiny.Session session;
 
     @Override
     public Uni<Void> save(Payment payment) {
@@ -58,29 +63,22 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
         );
     }
 
-    @Override
     public Uni<List<SummaryQueryDto>> getSummary(Instant from, Instant to) {
-        StringBuilder queryBuilder = new StringBuilder("""
-                    SELECT p.processor as processor, COUNT(p.id) as totalRequests, SUM(p.amount) as totalAmount
-                    FROM Payment p
-                    WHERE p.processor IS NOT NULL
-                """);
-
-        Parameters params = new Parameters();
-
-        if (from != null) {
-            queryBuilder.append(" AND p.createdAt >= :from");
-            params.and("from", from);
-        }
-        if (to != null) {
-            queryBuilder.append(" AND p.createdAt <= :to");
-            params.and("to", to);
-        }
-
-        queryBuilder.append(" GROUP BY p.processor");
-
-        return find(queryBuilder.toString(), params)
-                .project(SummaryQueryDto.class)
-                .list();
+        String jpql = """
+                              SELECT new br.com.pvssdev.infrastructure.persistence.SummaryQueryDto(
+                                  p.processor,
+                                  COUNT(p.id),
+                                  SUM(p.amount)
+                              )
+                              FROM Payment p
+                              WHERE p.processor IS NOT NULL
+                              """
+                      + (from != null ? " AND p.createdAt >= :from" : "")
+                      + (to != null ? " AND p.createdAt <= :to" : "")
+                      + " GROUP BY p.processor";
+        var query = session.createQuery(jpql, SummaryQueryDto.class);
+        if (from != null) query.setParameter("from", from);
+        if (to != null) query.setParameter("to", to);
+        return query.getResultList();
     }
 }
