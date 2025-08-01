@@ -29,7 +29,7 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
         return sf.withSession(session ->
                 session.createNativeQuery(
                                 """
-                                        SELECT * FROM payments WHERE status = 'PENDING' ORDER BY "createdAt" ASC LIMIT :limit FOR UPDATE SKIP LOCKED
+                                        SELECT * FROM payments WHERE status = 'PENDING' ORDER BY "created_at" ASC LIMIT :limit FOR UPDATE SKIP LOCKED
                                         """,
                                 Payment.class)
                         .setParameter("limit", limit)
@@ -40,7 +40,7 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
     public Uni<Integer> updatePaymentStatus(Long id, ProcessorType processor, PaymentStatus status) {
         return update("""
                             UPDATE Payment
-                            SET status = :status, processor = :processor, updatedAt = :now
+                            SET status = :status, processor = :processor, updated_at = :now
                             WHERE id = :id AND status = :pendingStatus
                         """,
                 Parameters.with("status", status)
@@ -53,7 +53,7 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
 
     public Uni<Integer> updatePaymentAsFailed(Long id) {
         return update("""
-                            UPDATE Payment SET status = :failedStatus, updatedAt = :now
+                            UPDATE Payment SET status = :failedStatus, updated_at = :now
                             WHERE id = :id AND status = :pendingStatus
                         """,
                 Parameters.with("failedStatus", PaymentStatus.FAILED)
@@ -68,7 +68,7 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
         String query = """
                     SELECT p.processor as processor, COUNT(p.id) as totalRequests, SUM(p.amount) as totalAmount
                     FROM Payment p
-                    WHERE p.createdAt >= :from AND p.createdAt <= :to AND p.processor IS NOT NULL
+                    WHERE p.created_at >= :from AND p.created_at <= :to AND p.processor IS NOT NULL
                     GROUP BY p.processor
                 """;
         return find(query, Parameters.with("from", from).and("to", to))

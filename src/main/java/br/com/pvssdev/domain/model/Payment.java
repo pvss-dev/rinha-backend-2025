@@ -16,7 +16,7 @@ public class Payment extends PanacheEntityBase {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     public Long id;
 
-    @Column(unique = true, nullable = false)
+    @Column(name = "correlation_id", unique = true, nullable = false)
     public UUID correlationId;
 
     @Column(nullable = false)
@@ -29,10 +29,10 @@ public class Payment extends PanacheEntityBase {
     @Column(nullable = false)
     public PaymentStatus status;
 
-    @Column(nullable = false)
+    @Column(name = "created_at", nullable = false)
     public Instant createdAt;
 
-    @Column
+    @Column(name = "updated_at")
     public Instant updatedAt;
 
     public Payment() {
