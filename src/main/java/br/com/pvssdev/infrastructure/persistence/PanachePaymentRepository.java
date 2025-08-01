@@ -52,13 +52,26 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
 
     @Override
     public Uni<List<SummaryQueryDto>> getSummary(Instant from, Instant to) {
-        String query = """
+        StringBuilder queryBuilder = new StringBuilder("""
                     SELECT p.processor as processor, COUNT(p.id) as totalRequests, SUM(p.amount) as totalAmount
                     FROM Payment p
-                    WHERE p.createdAt >= :from AND p.createdAt <= :to AND p.processor IS NOT NULL
-                    GROUP BY p.processor
-                """;
-        return find(query, Parameters.with("from", from).and("to", to))
+                    WHERE p.processor IS NOT NULL
+                """);
+
+        Parameters params = new Parameters();
+
+        if (from != null) {
+            queryBuilder.append(" AND p.createdAt >= :from");
+            params.and("from", from);
+        }
+        if (to != null) {
+            queryBuilder.append(" AND p.createdAt <= :to");
+            params.and("to", to);
+        }
+
+        queryBuilder.append(" GROUP BY p.processor");
+
+        return find(queryBuilder.toString(), params)
                 .project(SummaryQueryDto.class)
                 .list();
     }

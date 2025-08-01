@@ -23,7 +23,7 @@ public class HealthCheckScheduler {
     @RestClient
     FallbackHealthClient fallbackHealthClient;
 
-    @Scheduled(every = "5s", identity = "health-check-task")
+    @Scheduled(identity = "health-check-task", cron = "${healthcheck.cron.expr}")
     void pollHealthStatus() {
         defaultHealthClient.checkHealth()
                 .subscribe().with(

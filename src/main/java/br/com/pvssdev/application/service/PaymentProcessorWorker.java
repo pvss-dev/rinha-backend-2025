@@ -5,8 +5,10 @@ import br.com.pvssdev.domain.model.PaymentStatus;
 import br.com.pvssdev.domain.model.ProcessorType;
 import br.com.pvssdev.infrastructure.client.DefaultPaymentProcessorClient;
 import br.com.pvssdev.infrastructure.client.FallbackPaymentProcessorClient;
+import br.com.pvssdev.infrastructure.client.dto.HealthStatus;
 import br.com.pvssdev.infrastructure.client.dto.ProcessorRequest;
 import br.com.pvssdev.infrastructure.persistence.PanachePaymentRepository;
+import br.com.pvssdev.infrastructure.scheduler.ProcessorHealthCache;
 import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.quarkus.logging.Log;
 import io.quarkus.scheduler.Scheduled;
@@ -31,6 +33,9 @@ public class PaymentProcessorWorker {
     @RestClient
     FallbackPaymentProcessorClient fallbackProcessor;
 
+    @Inject
+    ProcessorHealthCache healthCache;
+
     @ConfigProperty(name = "processor.batch.size")
     int batchSize;
 
@@ -47,6 +52,12 @@ public class PaymentProcessorWorker {
 
     private Uni<Void> tryProcessSinglePayment(Payment payment) {
         ProcessorRequest processorRequest = new ProcessorRequest(payment.correlationId, payment.amount, payment.createdAt);
+        HealthStatus defaultHealth = healthCache.getDefaultStatus();
+
+        if (defaultHealth.failing()) {
+            Log.warnf("Default processor is marked as failing. Skipping straight to FALLBACK for payment %s.", payment.correlationId);
+            return executeFallback(payment, processorRequest);
+        }
 
         return defaultProcessor.process(processorRequest)
                 .onItem().transformToUni(response -> {
