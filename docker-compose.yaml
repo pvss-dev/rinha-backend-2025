@@ -30,7 +30,6 @@ services:
       - QUARKUS_DATASOURCE_REACTIVE_URL=vertx-reactive:postgresql://db:5432/rinha
       - QUARKUS_DATASOURCE_USERNAME=rinha
       - QUARKUS_DATASOURCE_PASSWORD=rinha
-      - HEALTHCHECK_CRON_EXPR=0/5 * * * * ?
       - PROCESSOR_SCHEDULE_EVERY=2s
       - PROCESSOR_BATCH_SIZE=100
     networks:
@@ -51,7 +50,6 @@ services:
       - QUARKUS_DATASOURCE_REACTIVE_URL=vertx-reactive:postgresql://db:5432/rinha
       - QUARKUS_DATASOURCE_USERNAME=rinha
       - QUARKUS_DATASOURCE_PASSWORD=rinha
-      - HEALTHCHECK_CRON_EXPR=0 0 0 1 1 ? 2099
     hostname: api02
 
   lb:

@@ -5,6 +5,7 @@ import br.com.pvssdev.infrastructure.client.FallbackHealthClient;
 import br.com.pvssdev.infrastructure.client.dto.HealthStatus;
 import io.quarkus.logging.Log;
 import io.quarkus.scheduler.Scheduled;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
@@ -23,8 +24,9 @@ public class HealthCheckScheduler {
     @RestClient
     FallbackHealthClient fallbackHealthClient;
 
-    @Scheduled(identity = "health-check-task", cron = "${healthcheck.cron.expr}")
-    void pollHealthStatus() {
+    @Scheduled(every = "5s")
+    @Blocking
+    public void pollHealthStatus() {
         defaultHealthClient.checkHealth()
                 .subscribe().with(
                         status -> healthCache.updateDefaultStatus(status),
