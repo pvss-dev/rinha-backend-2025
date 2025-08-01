@@ -9,5 +9,6 @@ CREATE TABLE payments
     updatedAt     TIMESTAMP
 );
 
--- ÍNDICE CRÍTICO PARA A PERFORMANCE DO WORKER!
 CREATE INDEX idx_payments_status ON payments (status) WHERE status = 'PENDING';
+
+CREATE INDEX idx_payments_created_at ON payments (createdAt);
