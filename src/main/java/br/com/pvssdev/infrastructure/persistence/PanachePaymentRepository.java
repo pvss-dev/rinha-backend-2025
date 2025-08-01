@@ -9,17 +9,12 @@ import io.quarkus.hibernate.reactive.panache.PanacheRepositoryBase;
 import io.quarkus.panache.common.Parameters;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import org.hibernate.reactive.mutiny.Mutiny;
 
 import java.time.Instant;
 import java.util.List;
 
 @ApplicationScoped
 public class PanachePaymentRepository implements PaymentRepository, PanacheRepositoryBase<Payment, Long> {
-
-    @Inject
-    Mutiny.SessionFactory sessionFactory;
 
     @Override
     public Uni<Void> save(Payment payment) {
@@ -66,22 +61,20 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
     @Override
     public Uni<List<SummaryQueryDto>> getSummary(Instant from, Instant to) {
         String jpql = """
-                              SELECT new br.com.pvssdev.infrastructure.persistence.SummaryQueryDto(
-                                  p.processor,
-                                  COUNT(p.id),
-                                  SUM(p.amount)
-                              )
-                              FROM Payment p
-                              WHERE p.processor IS NOT NULL
-                              """
-                      + (from != null ? " AND p.createdAt >= :from" : "")
-                      + (to != null ? " AND p.createdAt <= :to" : "")
-                      + " GROUP BY p.processor";
-        return sessionFactory.withSession(session ->
-                session.createNamedQuery("SummaryQuery", SummaryQueryDto.class)
-                        .setParameter("from", from)
-                        .setParameter("to", to)
-                        .getResultList()
-        );
+                    SELECT p.processor       AS processor,
+                           COUNT(p)          AS totalRequests,
+                           SUM(p.amount)     AS totalAmount
+                      FROM Payment p
+                     WHERE p.processor IS NOT NULL
+                       AND (:from IS NULL OR p.createdAt >= :from)
+                       AND (:to   IS NULL OR p.createdAt <= :to)
+                  GROUP BY p.processor
+                """;
+
+        return find(jpql, Parameters
+                .with("from", from)
+                .and("to", to))
+                .project(SummaryQueryDto.class)
+                .list();
     }
 }
