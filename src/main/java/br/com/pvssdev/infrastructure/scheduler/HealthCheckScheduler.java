@@ -5,12 +5,10 @@ import br.com.pvssdev.infrastructure.client.FallbackHealthClient;
 import br.com.pvssdev.infrastructure.client.dto.HealthStatus;
 import io.quarkus.logging.Log;
 import io.quarkus.scheduler.Scheduled;
-import io.smallrye.common.annotation.Blocking;
+import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
-
-import java.time.Duration;
 
 @ApplicationScoped
 public class HealthCheckScheduler {
@@ -26,29 +24,24 @@ public class HealthCheckScheduler {
     @RestClient
     FallbackHealthClient fallbackHealthClient;
 
-    @Scheduled(every = "5s")
-    @Blocking
-    public void pollHealthStatus() {
-        try {
-            HealthStatus s = defaultHealthClient
-                    .checkHealth()
-                    .await()
-                    .atMost(Duration.ofSeconds(2));
-            healthCache.updateDefaultStatus(s);
-        } catch (Exception t) {
-            Log.warn("Failed to check health of DEFAULT processor", t);
-            healthCache.updateDefaultStatus(new HealthStatus(true, Integer.MAX_VALUE));
-        }
+    @Scheduled(every = "5s", identity = "health-check-task")
+    public Uni<Void> pollHealthStatus() {
+        Uni<Void> defaultCheck = defaultHealthClient.checkHealth()
+                .invoke(healthCache::updateDefaultStatus)
+                .onFailure().invoke(failure -> {
+                    Log.warn("Failed to check health of DEFAULT processor", failure);
+                    healthCache.updateDefaultStatus(new HealthStatus(true, Integer.MAX_VALUE));
+                })
+                .replaceWithVoid();
 
-        try {
-            HealthStatus s = fallbackHealthClient
-                    .checkHealth()
-                    .await()
-                    .atMost(Duration.ofSeconds(2));
-            healthCache.updateFallbackStatus(s);
-        } catch (Exception t) {
-            Log.warn("Failed to check health of FALLBACK processor", t);
-            healthCache.updateFallbackStatus(new HealthStatus(true, Integer.MAX_VALUE));
-        }
+        Uni<Void> fallbackCheck = fallbackHealthClient.checkHealth()
+                .invoke(healthCache::updateFallbackStatus)
+                .onFailure().invoke(failure -> {
+                    Log.warn("Failed to check health of FALLBACK processor", failure);
+                    healthCache.updateFallbackStatus(new HealthStatus(true, Integer.MAX_VALUE));
+                })
+                .replaceWithVoid();
+
+        return Uni.combine().all().unis(defaultCheck, fallbackCheck).discardItems();
     }
 }
