@@ -12,6 +12,10 @@ import java.util.UUID;
 @Table(name = "payments")
 public class Payment extends PanacheEntity {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    public Long id;
+
     @Column(unique = true, nullable = false)
     public UUID correlationId;
 

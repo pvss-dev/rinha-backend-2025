@@ -1,6 +1,6 @@
 CREATE TABLE payments
 (
-    id            SERIAL PRIMARY KEY,
+    id            BIGSERIAL PRIMARY KEY,
     correlationId UUID UNIQUE    NOT NULL,
     amount        DECIMAL(10, 2) NOT NULL,
     processor     VARCHAR(20),
