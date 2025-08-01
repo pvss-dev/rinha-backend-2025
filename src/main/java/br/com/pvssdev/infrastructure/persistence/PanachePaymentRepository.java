@@ -77,11 +77,11 @@ public class PanachePaymentRepository implements PaymentRepository, PanacheRepos
                       + (from != null ? " AND p.createdAt >= :from" : "")
                       + (to != null ? " AND p.createdAt <= :to" : "")
                       + " GROUP BY p.processor";
-        return sessionFactory.withSession(session -> {
-            var query = session.createQuery(jpql, SummaryQueryDto.class);
-            if (from != null) query.setParameter("from", from);
-            if (to != null) query.setParameter("to", to);
-            return query.getResultList();
-        });
+        return sessionFactory.withSession(session ->
+                session.createNamedQuery("SummaryQuery", SummaryQueryDto.class)
+                        .setParameter("from", from)
+                        .setParameter("to", to)
+                        .getResultList()
+        );
     }
 }
