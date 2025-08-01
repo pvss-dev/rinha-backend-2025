@@ -22,6 +22,7 @@ public class PaymentResource {
     @Path("/payments")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
+    @WithTransaction
     public Uni<Response> createPayment(PaymentRequestDto request) {
         return paymentService.processPayment(request)
                 .map(v -> Response.noContent().build())
