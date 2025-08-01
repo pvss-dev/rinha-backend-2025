@@ -1,7 +1,7 @@
 package br.com.pvssdev.domain.model;
 
 import br.com.pvssdev.application.dto.PaymentRequestDto;
-import io.quarkus.hibernate.reactive.panache.PanacheEntity;
+import io.quarkus.hibernate.reactive.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 
 import java.math.BigDecimal;
@@ -10,7 +10,7 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "payments")
-public class Payment extends PanacheEntity {
+public class Payment extends PanacheEntityBase {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
