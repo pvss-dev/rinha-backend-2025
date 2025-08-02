@@ -33,7 +33,7 @@ services:
       - PROCESSOR_SCHEDULE_EVERY=2s
       - PROCESSOR_BATCH_SIZE=100
     networks:
-      - payment-processor-net
+      - payment-processor
       - rinha-net
     depends_on:
       db:
@@ -70,7 +70,7 @@ services:
           memory: "50MB"
 
 networks:
-  payment-processor-net:
+  payment-processor:
     external: true
     name: payment-processor
   rinha-net:
