@@ -46,10 +46,6 @@ services:
 
   api02:
     <<: *api
-    environment:
-      - QUARKUS_DATASOURCE_REACTIVE_URL=postgresql://db:5432/rinha
-      - QUARKUS_DATASOURCE_USERNAME=rinha
-      - QUARKUS_DATASOURCE_PASSWORD=rinha
     hostname: api02
 
   lb:
