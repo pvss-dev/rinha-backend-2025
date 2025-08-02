@@ -10,6 +10,6 @@ import org.eclipse.microprofile.faulttolerance.Timeout;
 public interface PaymentProcessorHealthClient {
 
     @GET
-    @Timeout(500)
+    @Timeout(2000)
     Uni<HealthStatus> checkHealth();
 }

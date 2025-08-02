@@ -14,7 +14,7 @@ import jakarta.ws.rs.Path;
 public interface DefaultPaymentProcessorClient {
 
     @POST
-    @Timeout(2000)
+    @Timeout(3000)
     @CircuitBreaker(requestVolumeThreshold = 20, failureRatio = 0.5, delay = 5000)
     Uni<ProcessorResponse> process(ProcessorRequest request);
 }
