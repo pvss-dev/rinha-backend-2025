@@ -4,7 +4,7 @@ COPY pom.xml .
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-FROM eclipse-temurin:21-jdk-alpine
+FROM bellsoft/liberica-openjdk-alpine:21
 WORKDIR /app
 COPY --from=build /build/target/*.jar app.jar
 
@@ -13,7 +13,7 @@ ENV REDIS_URI=redis://redis:6379
 
 ENV JAVA_OPTS="-server \
     -Xms64m \
-    -Xmx128m \
+    -Xmx130m \
     -XX:+UseG1GC \
     -XX:MaxGCPauseMillis=100 \
     -XX:+UseStringDeduplication \

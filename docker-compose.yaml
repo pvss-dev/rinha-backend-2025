@@ -13,7 +13,7 @@ services:
       resources:
         limits:
           cpus: "0.6"
-          memory: "125MB"
+          memory: "135MB"
 
   api-2:
     build: .
@@ -29,7 +29,7 @@ services:
       resources:
         limits:
           cpus: "0.6"
-          memory: "125MB"
+          memory: "135MB"
 
   nginx:
     image: nginx:alpine
@@ -47,7 +47,7 @@ services:
       resources:
         limits:
           cpus: "0.15"
-          memory: "50MB"
+          memory: "40MB"
 
   redis:
     image: redis:7.2-alpine
@@ -66,7 +66,7 @@ services:
       resources:
         limits:
           cpus: "0.15"
-          memory: "50MB"
+          memory: "40MB"
 
 networks:
   backend:
