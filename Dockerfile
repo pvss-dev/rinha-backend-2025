@@ -8,7 +8,8 @@ FROM bellsoft/liberica-openjdk-alpine:21
 WORKDIR /app
 COPY --from=build /build/target/*.jar app.jar
 
-ENV DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
+ENV PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
+ENV PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
 ENV REDIS_URI=redis://redis:6379
 
 ENV JAVA_OPTS="-server \

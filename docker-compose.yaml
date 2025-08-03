@@ -3,8 +3,8 @@ services:
     build: .
     environment:
       - REDIS_URI=redis://redis:6379
-      - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
-      - FALLBACK_PROCESSOR_URL=http://payment-processor-fallback:8080
+      - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
+      - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
     depends_on:
       redis:
         condition: service_healthy
@@ -21,8 +21,8 @@ services:
     build: .
     environment:
       - REDIS_URI=redis://redis:6379
-      - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
-      - FALLBACK_PROCESSOR_URL=http://payment-processor-fallback:8080
+      - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
+      - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
     depends_on:
       redis:
         condition: service_healthy
