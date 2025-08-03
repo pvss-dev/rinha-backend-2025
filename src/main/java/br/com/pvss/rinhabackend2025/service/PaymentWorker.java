@@ -18,10 +18,10 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Component
@@ -31,12 +31,14 @@ public class PaymentWorker implements DisposableBean {
     private final StringRedisTemplate redisTemplate;
     private final PaymentProcessorClient processorClient;
     private final ObjectMapper objectMapper;
-    private final ExecutorService workerPool = Executors.newFixedThreadPool(16);
+    private final HealthCheckService healthCheckService;
+    private final ExecutorService workerPool = Executors.newFixedThreadPool(12);
+    private final AtomicInteger retryCount = new AtomicInteger(0);
 
     @PostConstruct
     public void init() {
-        log.info("Starting PaymentWorker pool...");
-        for (int i = 0; i < 16; i++) {
+        log.info("Starting PaymentWorker pool with 12 threads...");
+        for (int i = 0; i < 12; i++) {
             workerPool.submit(this::processQueue);
         }
     }
@@ -45,21 +47,22 @@ public class PaymentWorker implements DisposableBean {
     public void processQueue() {
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                String paymentJson = redisTemplate.opsForList().rightPop(PaymentService.PAYMENT_QUEUE, 5, TimeUnit.SECONDS);
+                String paymentJson = redisTemplate.opsForList().rightPop(
+                        PaymentService.PAYMENT_QUEUE, 3, TimeUnit.SECONDS);
 
                 if (paymentJson != null) {
                     PaymentDto dto = objectMapper.readValue(paymentJson, PaymentDto.class);
-                    processPayment(dto, paymentJson);
+                    processPayment(dto);
                 }
             } catch (Exception e) {
-                log.error("Error in worker thread, restarting loop.", e);
+                log.error("Error in worker thread: {}", e.getMessage());
                 Thread.sleep(1000);
             }
         }
     }
 
-    private void processPayment(PaymentDto dto, String originalJson) {
-        String chosenProcessor = chooseProcessor();
+    private void processPayment(PaymentDto dto) {
+        String chosenProcessor = healthCheckService.getBestProcessor();
 
         PaymentRequestDto requestDto = new PaymentRequestDto(
                 dto.correlationId(),
@@ -68,10 +71,24 @@ public class PaymentWorker implements DisposableBean {
         );
 
         processorClient.process(requestDto, chosenProcessor)
-                .doOnSuccess(v -> handleSuccess(chosenProcessor.contains("default"), dto.amount()))
+                .doOnSuccess(v -> {
+                    boolean isDefaultProcessor = chosenProcessor.contains("default");
+                    handleSuccess(isDefaultProcessor, dto.amount());
+                    log.debug("Payment {} processed successfully using {}",
+                            dto.correlationId(), isDefaultProcessor ? "default" : "fallback");
+                })
                 .doOnError(e -> {
-                    log.warn("Processing failed for correlationId {}. Re-queueing.", dto.correlationId());
-                    redisTemplate.opsForList().leftPush(PaymentService.PAYMENT_QUEUE, originalJson);
+                    int currentRetries = retryCount.incrementAndGet();
+                    if (currentRetries % 100 == 0) {
+                        log.warn("Processing failures count: {}", currentRetries);
+                    }
+
+                    try {
+                        String paymentJson = objectMapper.writeValueAsString(dto);
+                        redisTemplate.opsForList().leftPush(PaymentService.PAYMENT_QUEUE, paymentJson);
+                    } catch (Exception ex) {
+                        log.error("Failed to re-queue payment {}: {}", dto.correlationId(), ex.getMessage());
+                    }
                 })
                 .subscribe();
     }
@@ -81,33 +98,21 @@ public class PaymentWorker implements DisposableBean {
         String reqKey = "rinha:summary:" + processorType + ":requests";
         String amountKey = "rinha:summary:" + processorType + ":amount";
 
-        redisTemplate.execute(new SessionCallback<List<Object>>() {
-            @Override
-            public <K, V> List<Object> execute(RedisOperations<K, V> operations) throws DataAccessException {
-                StringRedisTemplate stringOps = (StringRedisTemplate) operations;
+        try {
+            redisTemplate.execute(new SessionCallback<List<Object>>() {
+                @Override
+                public <K, V> List<Object> execute(RedisOperations<K, V> operations) throws DataAccessException {
+                    StringRedisTemplate stringOps = (StringRedisTemplate) operations;
 
-                stringOps.multi();
-
-                stringOps.opsForValue().increment(reqKey);
-                stringOps.opsForValue().increment(amountKey, amount.doubleValue());
-
-                return stringOps.exec();
-            }
-        });
-    }
-
-    private String chooseProcessor() {
-        Map<Object, Object> statuses = redisTemplate.opsForHash().entries("processor_status");
-        String defaultUrl = "http://payment-processor-default:8080";
-        String fallbackUrl = "http://payment-processor-fallback:8080";
-
-        return statuses.entrySet().stream()
-                .map(e -> Map.entry((String) e.getKey(), (String) e.getValue()))
-                .filter(entry -> entry.getValue().startsWith("healthy"))
-                .map(entry -> Map.entry(entry.getKey(), Long.parseLong(entry.getValue().split("\\|")[1])))
-                .min(Map.Entry.comparingByValue())
-                .map(Map.Entry::getKey)
-                .orElse(defaultUrl);
+                    stringOps.multi();
+                    stringOps.opsForValue().increment(reqKey);
+                    stringOps.opsForValue().increment(amountKey, amount.doubleValue());
+                    return stringOps.exec();
+                }
+            });
+        } catch (Exception e) {
+            log.error("Failed to update summary statistics: {}", e.getMessage());
+        }
     }
 
     @Override
