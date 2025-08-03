@@ -74,15 +74,28 @@ public class PaymentWorker implements DisposableBean {
         try {
             processorClient.process(requestDto, chosenProcessor)
                     .retryWhen(Retry.backoff(2, Duration.ofMillis(100)).jitter(0.5))
-                    .block(Duration.ofSeconds(15));
+                    .block(Duration.ofSeconds(10));
 
             boolean isDefaultProcessor = chosenProcessor.contains("default");
             handleSuccess(isDefaultProcessor, dto.correlationId(), dto.amount(), requestTime);
-            log.debug("Payment {} processed successfully using {}",
-                    dto.correlationId(), isDefaultProcessor ? "default" : "fallback");
         } catch (Exception e) {
             log.warn("Processing failed for payment {}: {}", dto.correlationId(), e.getMessage());
-            requeuePayment(dto);
+
+            String alternativeProcessor = chosenProcessor.contains("default")
+                    ? HealthCheckService.FALLBACK_PROCESSOR
+                    : HealthCheckService.DEFAULT_PROCESSOR;
+
+            try {
+                processorClient.process(requestDto, alternativeProcessor)
+                        .retryWhen(Retry.backoff(1, Duration.ofMillis(50)))
+                        .block(Duration.ofSeconds(5));
+
+                boolean isDefaultProcessor = alternativeProcessor.contains("default");
+                handleSuccess(isDefaultProcessor, dto.correlationId(), dto.amount(), requestTime);
+
+            } catch (Exception e2) {
+                log.error("Payment {} failed on both processors, dropping", dto.correlationId());
+            }
         }
     }
 
