@@ -30,44 +30,19 @@ public class PaymentWorker implements DisposableBean {
     private final ObjectMapper objectMapper;
     private final HealthCheckService healthCheckService;
     private final ExecutorService workerPool = Executors.newFixedThreadPool(8);
-    private volatile boolean isRedisReady = false;
 
     @PostConstruct
     public void init() {
         log.info("Starting PaymentWorker pool...");
-
-        waitForRedis();
 
         for (int i = 0; i < 8; i++) {
             workerPool.submit(this::processQueue);
         }
     }
 
-    private void waitForRedis() {
-        log.info("Waiting for Redis to be ready...");
-        for (int i = 0; i < 30; i++) {
-            try {
-                redisTemplate.opsForValue().set("health-check", "ok");
-                redisTemplate.delete("health-check");
-                isRedisReady = true;
-                log.info("Redis is ready!");
-                return;
-            } catch (Exception e) {
-                log.warn("Redis not ready yet, attempt {}/30: {}", i + 1, e.getMessage());
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
-            }
-        }
-        log.error("Redis failed to become ready after 30 seconds!");
-    }
-
     @SneakyThrows
     public void processQueue() {
-        while (!isRedisReady && !Thread.currentThread().isInterrupted()) {
+        while (!Thread.currentThread().isInterrupted()) {
             try {
                 String paymentJson = redisTemplate.opsForList().rightPop(
                         PaymentService.PAYMENT_QUEUE, 0, TimeUnit.SECONDS);
