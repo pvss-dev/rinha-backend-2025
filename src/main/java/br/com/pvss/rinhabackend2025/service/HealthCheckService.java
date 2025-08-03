@@ -1,31 +1,35 @@
 package br.com.pvss.rinhabackend2025.service;
 
 import jakarta.annotation.PostConstruct;
-import lombok.AllArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-@Slf4j
 @Service
-@AllArgsConstructor
 public class HealthCheckService {
 
+    private static final Logger log = LoggerFactory.getLogger(HealthCheckService.class);
     private final WebClient defaultProcessorClient;
     private final WebClient fallbackProcessorClient;
     private final RedisTemplate<String, String> redisTemplate;
-
     public static final String DEFAULT = "default";
     public static final String FALLBACK = "fallback";
     private final Map<String, AtomicLong> lastCallTimes = new ConcurrentHashMap<>();
+
+    public HealthCheckService(WebClient defaultProcessorClient, WebClient fallbackProcessorClient, RedisTemplate<String, String> redisTemplate) {
+        this.defaultProcessorClient = defaultProcessorClient;
+        this.fallbackProcessorClient = fallbackProcessorClient;
+        this.redisTemplate = redisTemplate;
+    }
 
     @PostConstruct
     public void init() {

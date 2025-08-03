@@ -1,6 +1,5 @@
 package br.com.pvss.rinhabackend2025.controller;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,10 +13,13 @@ import java.util.Set;
 
 @RestController
 @RequestMapping("/payments-summary")
-@RequiredArgsConstructor
 public class SummaryController {
 
     private final StringRedisTemplate redisTemplate;
+
+    public SummaryController(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
 
     @GetMapping
     public Map<String, Object> summary(

@@ -5,14 +5,14 @@ import br.com.pvss.rinhabackend2025.dto.PaymentDto;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.util.retry.Retry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -20,10 +20,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-@Slf4j
+import com.fasterxml.jackson.core.JsonProcessingException;
+
 @Component
 public class PaymentWorker implements DisposableBean {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentWorker.class);
     private final StringRedisTemplate redisTemplate;
     private final PaymentProcessorClient processorClient;
     private final ObjectMapper objectMapper;
@@ -56,7 +58,6 @@ public class PaymentWorker implements DisposableBean {
         }
     }
 
-    @SneakyThrows
     private void processQueue() {
         while (!Thread.currentThread().isInterrupted()) {
             try {
@@ -126,10 +127,14 @@ public class PaymentWorker implements DisposableBean {
         }
     }
 
-    @SneakyThrows
     private void requeuePayment(PaymentDto dto) {
-        String json = objectMapper.writeValueAsString(dto);
-        redisTemplate.opsForList().leftPush(PaymentService.PAYMENT_QUEUE, json);
+        try {
+            String json = objectMapper.writeValueAsString(dto);
+            redisTemplate.opsForList()
+                    .leftPush(PaymentService.PAYMENT_QUEUE, json);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Erro ao serializar PaymentDto para JSON", e);
+        }
     }
 
     @Override
