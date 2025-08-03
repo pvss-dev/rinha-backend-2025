@@ -4,6 +4,7 @@ services:
     environment:
       - REDIS_URI=redis://redis:6379
       - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
+      - FALLBACK_PROCESSOR_URL=http://payment-processor-fallback:8080
     depends_on:
       - redis
     networks:
@@ -19,7 +20,8 @@ services:
     build: .
     environment:
       - REDIS_URI=redis://redis:6379
-      - FALLBACK_PROCESSOR_URL=http://payment-processor-default:8080
+      - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
+      - FALLBACK_PROCESSOR_URL=http://payment-processor-fallback:8080
     depends_on:
       - redis
     networks:
