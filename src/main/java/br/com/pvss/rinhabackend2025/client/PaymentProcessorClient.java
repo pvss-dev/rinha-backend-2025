@@ -12,12 +12,9 @@ import reactor.core.publisher.Mono;
 @AllArgsConstructor
 public class PaymentProcessorClient {
 
-    private final WebClient.Builder webClientBuilder;
-
     @CircuitBreaker(name = "processor")
     @Retry(name = "processor")
-    public Mono<Void> process(PaymentRequestDto dto, String baseUrl) {
-        WebClient client = webClientBuilder.baseUrl(baseUrl).build();
+    public Mono<Void> process(PaymentRequestDto dto, WebClient client) {
         return client.post()
                 .uri("/payments")
                 .bodyValue(dto)
