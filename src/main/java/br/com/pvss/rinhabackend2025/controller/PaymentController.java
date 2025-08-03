@@ -20,7 +20,7 @@ public class PaymentController {
 
     @PostMapping
     public ResponseEntity<Void> create(@Valid @RequestBody PaymentDto dto) {
-        paymentService.enqueue(dto);
+        paymentService.acceptPayment(dto);
         return ResponseEntity.status(HttpStatus.ACCEPTED).build();
     }
 }
