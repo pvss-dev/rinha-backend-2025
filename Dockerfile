@@ -9,7 +9,7 @@ WORKDIR /app
 COPY --from=build /build/target/*.jar app.jar
 
 ENV DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
-ENV REDIS_URI=redis://rinha-redis:6379
+ENV REDIS_URI=redis://redis:6379
 
 ENV JAVA_OPTS="-server \
     -Xms64m \

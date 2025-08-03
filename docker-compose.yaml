@@ -2,7 +2,7 @@ services:
   api-1:
     build: .
     environment:
-      - REDIS_URI=redis://rinha-redis:6379
+      - REDIS_URI=redis://redis:6379
       - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
     depends_on:
       - redis
@@ -18,7 +18,7 @@ services:
   api-2:
     build: .
     environment:
-      - REDIS_URI=redis://rinha-redis:6379
+      - REDIS_URI=redis://redis:6379
       - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
     depends_on:
       - redis
