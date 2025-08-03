@@ -8,6 +8,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.RedisOperations;
 import org.springframework.data.redis.core.SessionCallback;
@@ -25,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class PaymentWorker {
+public class PaymentWorker implements DisposableBean {
 
     private final StringRedisTemplate redisTemplate;
     private final PaymentProcessorClient processorClient;
@@ -107,5 +108,20 @@ public class PaymentWorker {
                 .min(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
                 .orElse(defaultUrl);
+    }
+
+    @Override
+    public void destroy() {
+        log.info("Shutting down PaymentWorker pool...");
+        workerPool.shutdown();
+        try {
+            if (!workerPool.awaitTermination(5, TimeUnit.SECONDS)) {
+                log.warn("Worker pool did not terminate in 5 seconds. Forcing shutdown...");
+                workerPool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            workerPool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }
