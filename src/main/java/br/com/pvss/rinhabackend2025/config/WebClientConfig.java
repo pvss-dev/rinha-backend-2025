@@ -1,29 +1,23 @@
 package br.com.pvss.rinhabackend2025.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
-import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.netty.http.client.HttpClient;
 
-import java.time.Duration;
 
 @Configuration
 public class WebClientConfig {
 
     @Bean
-    public WebClient.Builder webClientBuilder() {
-        HttpClient httpClient = HttpClient.create()
-                .responseTimeout(Duration.ofSeconds(5))
-                .option(io.netty.channel.ChannelOption.CONNECT_TIMEOUT_MILLIS, 3000);
+    public WebClient defaultProcessorClient(WebClient.Builder builder,
+                                            @Value("${payment.processor.default.url}") String url) {
+        return builder.baseUrl(url).build();
+    }
 
-        return WebClient.builder()
-                .clientConnector(new ReactorClientHttpConnector(httpClient))
-                .exchangeStrategies(
-                        ExchangeStrategies.builder()
-                                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(16 * 1024 * 1024))
-                                .build()
-                );
+    @Bean
+    public WebClient fallbackProcessorClient(WebClient.Builder builder,
+                                             @Value("${payment.processor.fallback.url}") String url) {
+        return builder.baseUrl(url).build();
     }
 }

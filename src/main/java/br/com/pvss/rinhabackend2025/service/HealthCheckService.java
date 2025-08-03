@@ -19,105 +19,82 @@ import java.util.concurrent.atomic.AtomicLong;
 @AllArgsConstructor
 public class HealthCheckService {
 
-    private final WebClient.Builder webClientBuilder;
+    private final WebClient defaultProcessorClient;
+    private final WebClient fallbackProcessorClient;
     private final RedisTemplate<String, String> redisTemplate;
-    public static final String DEFAULT_PROCESSOR = "http://payment-processor-default:8080";
-    public static final String FALLBACK_PROCESSOR = "http://payment-processor-fallback:8080";
+
+    public static final String DEFAULT = "default";
+    public static final String FALLBACK = "fallback";
     private final Map<String, AtomicLong> lastCallTimes = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void init() {
-        lastCallTimes.put(DEFAULT_PROCESSOR, new AtomicLong(0));
-        lastCallTimes.put(FALLBACK_PROCESSOR, new AtomicLong(0));
+        lastCallTimes.put(DEFAULT, new AtomicLong(0));
+        lastCallTimes.put(FALLBACK, new AtomicLong(0));
     }
 
     @Scheduled(fixedRate = 5100)
-    public void checkProcessors() {
-        checkProcessor(DEFAULT_PROCESSOR);
-        checkProcessor(FALLBACK_PROCESSOR);
+    public void checkAll() {
+        checkProcessor(DEFAULT, defaultProcessorClient);
+        checkProcessor(FALLBACK, fallbackProcessorClient);
     }
 
-    private void checkProcessor(String baseUrl) {
-        long currentTime = System.currentTimeMillis();
-        AtomicLong lastCall = lastCallTimes.get(baseUrl);
+    private void checkProcessor(String key, WebClient client) {
+        AtomicLong lastCall = lastCallTimes.get(key);
+        long now = System.currentTimeMillis();
 
-        if (currentTime - lastCall.get() < 5000) {
-            return;
-        }
+        if (now - lastCall.get() < 5000) return;
 
-        if (!lastCall.compareAndSet(lastCall.get(), currentTime)) {
-            return;
-        }
+        if (!lastCall.compareAndSet(lastCall.get(), now)) return;
 
-        long start = System.nanoTime();
-        WebClient client = webClientBuilder.baseUrl(baseUrl).build();
-
+        long startNano = System.nanoTime();
         client.get()
                 .uri("/payments/service-health")
                 .retrieve()
                 .bodyToMono(Map.class)
                 .timeout(Duration.ofSeconds(3))
-                .doOnSuccess(responseBody -> {
-                    try {
-                        boolean isFailing = (Boolean) responseBody.get("failing");
-                        Integer minResponseTime = (Integer) responseBody.get("minResponseTime");
-                        String processorKey = baseUrl.contains("default") ? "default" : "fallback";
-
-                        if (!isFailing) {
-                            long actualResponseTime = (System.nanoTime() - start) / 1_000_000;
-                            long effectiveResponseTime = Math.max(actualResponseTime, minResponseTime);
-
-                            redisTemplate.opsForHash().put("processor_status", processorKey, "healthy|" + effectiveResponseTime);
-                            log.debug("Processor {} is healthy, response time: {}ms", processorKey, effectiveResponseTime);
-                        } else {
-                            redisTemplate.opsForHash().put("processor_status", processorKey, "unhealthy|99999");
-                            log.warn("Processor {} is failing", processorKey);
-                        }
-                    } catch (Exception e) {
-                        log.error("Error parsing health check response for {}: {}", baseUrl, e.getMessage());
-                        handleProcessorError(baseUrl);
-                    }
-                })
-                .doOnError(error -> {
-                    if (error instanceof WebClientResponseException.TooManyRequests) {
-                        log.warn("Rate limited by processor {}, backing off", baseUrl);
-                        lastCall.set(System.currentTimeMillis() + 5000);
-                    } else {
-                        log.error("Health check failed for {}: {}", baseUrl, error.getMessage());
-                    }
-                    handleProcessorError(baseUrl);
-                })
+                .doOnSuccess(body -> handleSuccess(key, body, startNano))
+                .doOnError(error -> handleError(key, error))
                 .subscribe();
     }
 
-    private void handleProcessorError(String baseUrl) {
-        String processorKey = baseUrl.contains("default") ? "default" : "fallback";
-        redisTemplate.opsForHash().put("processor_status", processorKey, "unhealthy|99999");
+    private void handleSuccess(String key, Map<String, Object> body, long startNano) {
+        boolean failing = (Boolean) body.getOrDefault("failing", true);
+        int minRt = (Integer) body.getOrDefault("minResponseTime", Integer.MAX_VALUE);
+        if (!failing) {
+            long actual = (System.nanoTime() - startNano) / 1_000_000;
+            long rt = Math.max(actual, minRt);
+            redisTemplate.opsForHash().put("processor_status", key, "healthy|" + rt);
+            log.debug("Processor {} healthy: {}ms", key, rt);
+        } else {
+            redisTemplate.opsForHash().put("processor_status", key, "unhealthy|99999");
+            log.warn("Processor {} failing", key);
+        }
+    }
+
+    private void handleError(String key, Throwable error) {
+        if (error instanceof WebClientResponseException.TooManyRequests) {
+            log.warn("Rate limited {}, backing off", key);
+            lastCallTimes.get(key).set(System.currentTimeMillis() + 10000);
+        } else {
+            log.error("Health check error for {}: {}", key, error.toString());
+        }
+        redisTemplate.opsForHash().put("processor_status", key, "unhealthy|99999");
     }
 
     public String getBestProcessor() {
-        Map<Object, Object> statuses = redisTemplate.opsForHash().entries("processor_status");
-
-        String defaultStatus = (String) statuses.get("default");
-        String fallbackStatus = (String) statuses.get("fallback");
-
-        boolean isDefaultHealthy = defaultStatus != null && defaultStatus.startsWith("healthy");
-        boolean isFallbackHealthy = fallbackStatus != null && fallbackStatus.startsWith("healthy");
-
-        if (isDefaultHealthy && isFallbackHealthy) {
-            long defaultTime = Long.parseLong(defaultStatus.split("\\|")[1]);
-            long fallbackTime = Long.parseLong(fallbackStatus.split("\\|")[1]);
-            return defaultTime <= fallbackTime ? DEFAULT_PROCESSOR : FALLBACK_PROCESSOR;
+        Map<Object, Object> stats = redisTemplate.opsForHash().entries("processor_status");
+        String d = (String) stats.get(DEFAULT);
+        String f = (String) stats.get(FALLBACK);
+        boolean okD = d != null && d.startsWith("healthy");
+        boolean okF = f != null && f.startsWith("healthy");
+        if (okD && okF) {
+            long rtD = Long.parseLong(d.split("\\|")[1]);
+            long rtF = Long.parseLong(f.split("\\|")[1]);
+            return rtD <= rtF ? DEFAULT : FALLBACK;
         }
-
-        if (isDefaultHealthy) {
-            return DEFAULT_PROCESSOR;
-        }
-
-        if (isFallbackHealthy) {
-            return FALLBACK_PROCESSOR;
-        }
-
-        return DEFAULT_PROCESSOR;
+        if (okD) return DEFAULT;
+        if (okF) return FALLBACK;
+        return DEFAULT;
     }
 }

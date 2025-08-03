@@ -83,8 +83,8 @@ public class PaymentWorker implements DisposableBean {
             log.warn("Processing failed for payment {}: {}", dto.correlationId(), e.getMessage());
 
             String alternativeProcessor = chosenProcessor.contains("default")
-                    ? HealthCheckService.FALLBACK_PROCESSOR
-                    : HealthCheckService.DEFAULT_PROCESSOR;
+                    ? HealthCheckService.FALLBACK
+                    : HealthCheckService.DEFAULT;
 
             try {
                 processorClient.process(requestDto, alternativeProcessor)
