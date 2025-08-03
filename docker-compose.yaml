@@ -6,7 +6,8 @@ services:
       - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
       - FALLBACK_PROCESSOR_URL=http://payment-processor-fallback:8080
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - backend
       - payment-processor
@@ -23,7 +24,8 @@ services:
       - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
       - FALLBACK_PROCESSOR_URL=http://payment-processor-fallback:8080
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - backend
       - payment-processor
