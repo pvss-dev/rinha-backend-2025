@@ -1,5 +1,6 @@
 package br.com.pvss.rinhabackend2025.service;
 
+import jakarta.annotation.PostConstruct;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -24,7 +25,13 @@ public class HealthCheckService {
     public static final String FALLBACK_PROCESSOR = "http://payment-processor-fallback:8080";
     private final Map<String, AtomicLong> lastCallTimes = new ConcurrentHashMap<>();
 
-    @Scheduled(fixedRate = 6000)
+    @PostConstruct
+    public void init() {
+        lastCallTimes.put(DEFAULT_PROCESSOR, new AtomicLong(0));
+        lastCallTimes.put(FALLBACK_PROCESSOR, new AtomicLong(0));
+    }
+
+    @Scheduled(fixedRate = 5100)
     public void checkProcessors() {
         checkProcessor(DEFAULT_PROCESSOR);
         checkProcessor(FALLBACK_PROCESSOR);
@@ -38,7 +45,9 @@ public class HealthCheckService {
             return;
         }
 
-        lastCall.set(currentTime);
+        if (!lastCall.compareAndSet(lastCall.get(), currentTime)) {
+            return;
+        }
 
         long start = System.nanoTime();
         WebClient client = webClientBuilder.baseUrl(baseUrl).build();
@@ -52,18 +61,15 @@ public class HealthCheckService {
                     try {
                         boolean isFailing = (Boolean) responseBody.get("failing");
                         Integer minResponseTime = (Integer) responseBody.get("minResponseTime");
+                        String processorKey = baseUrl.contains("default") ? "default" : "fallback";
 
                         if (!isFailing) {
                             long actualResponseTime = (System.nanoTime() - start) / 1_000_000;
                             long effectiveResponseTime = Math.max(actualResponseTime, minResponseTime);
 
-                            String processorKey = baseUrl.contains("default") ? "default" : "fallback";
-                            redisTemplate.opsForHash().put("processor_status", processorKey,
-                                    "healthy|" + effectiveResponseTime);
-
+                            redisTemplate.opsForHash().put("processor_status", processorKey, "healthy|" + effectiveResponseTime);
                             log.debug("Processor {} is healthy, response time: {}ms", processorKey, effectiveResponseTime);
                         } else {
-                            String processorKey = baseUrl.contains("default") ? "default" : "fallback";
                             redisTemplate.opsForHash().put("processor_status", processorKey, "unhealthy|99999");
                             log.warn("Processor {} is failing", processorKey);
                         }
@@ -75,7 +81,7 @@ public class HealthCheckService {
                 .doOnError(error -> {
                     if (error instanceof WebClientResponseException.TooManyRequests) {
                         log.warn("Rate limited by processor {}, backing off", baseUrl);
-                        lastCall.set(currentTime + 5000);
+                        lastCall.set(System.currentTimeMillis() + 5000);
                     } else {
                         log.error("Health check failed for {}: {}", baseUrl, error.getMessage());
                     }
@@ -95,15 +101,20 @@ public class HealthCheckService {
         String defaultStatus = (String) statuses.get("default");
         String fallbackStatus = (String) statuses.get("fallback");
 
-        if (defaultStatus == null && fallbackStatus == null) {
+        boolean isDefaultHealthy = defaultStatus != null && defaultStatus.startsWith("healthy");
+        boolean isFallbackHealthy = fallbackStatus != null && fallbackStatus.startsWith("healthy");
+
+        if (isDefaultHealthy && isFallbackHealthy) {
+            long defaultTime = Long.parseLong(defaultStatus.split("\\|")[1]);
+            long fallbackTime = Long.parseLong(fallbackStatus.split("\\|")[1]);
+            return defaultTime <= fallbackTime ? DEFAULT_PROCESSOR : FALLBACK_PROCESSOR;
+        }
+
+        if (isDefaultHealthy) {
             return DEFAULT_PROCESSOR;
         }
 
-        if (defaultStatus != null && defaultStatus.startsWith("healthy")) {
-            return DEFAULT_PROCESSOR;
-        }
-
-        if (fallbackStatus != null && fallbackStatus.startsWith("healthy")) {
+        if (isFallbackHealthy) {
             return FALLBACK_PROCESSOR;
         }
 
