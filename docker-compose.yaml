@@ -1,31 +1,11 @@
 services:
-  backend-1:
-    image: pvssdev/rinha-backend-2025:latest
-    restart: always
+  api-1:
+    build: .
     environment:
-      RETRY_API_DEFAULT: 15
-      WORKER_POOL_SIZE: 16
-      URL_PROCESSOR_DEFAULT: http://payment-processor-default:8080/payments
-      URL_PROCESSOR_FALLBACK: http://payment-processor-fallback:8080/payments
-      BACK_END_URL: http://backend-2:8080
-      UDP_CHANNEL_PORT: 9001
-      UDP_CHANNEL_INTERNAL_PORT: 9003
-      EXTERNAL_UDP_HOST: backend-2
-      EXTERNAL_UDP_PORT: 9004
-      HANDLER_UDP_POOL_SIZE: 7
-      JAVA_OPTS: >-
-        -server
-        -XX:+UseG1GC
-        -XX:+UseFastAccessorMethods
-        -Xlog:disable
-        -XX:-PrintGC
-        -XX:+UseStringCache
-        -XX:-PrintGCDetails
-        -XX:-FlightRecorder
-        -XX:+DisableExplicitGC
+      - REDIS_URI=redis://rinha-redis:6379
+      - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
     depends_on:
       - redis
-      - postgres
     networks:
       - backend
       - payment-processor
@@ -35,33 +15,13 @@ services:
           cpus: "0.6"
           memory: "125MB"
 
-  backend-2:
-    image: pvssdev/rinha-backend-2025:latest
-    restart: always
+  api-2:
+    build: .
     environment:
-      RETRY_API_DEFAULT: 15
-      WORKER_POOL_SIZE: 16
-      URL_PROCESSOR_DEFAULT: http://payment-processor-default:8080/payments
-      URL_PROCESSOR_FALLBACK: http://payment-processor-fallback:8080/payments
-      BACK_END_URL: http://backend-1:8080
-      UDP_CHANNEL_PORT: 9002
-      UDP_CHANNEL_INTERNAL_PORT: 9004
-      EXTERNAL_UDP_HOST: backend-1
-      EXTERNAL_UDP_PORT: 9003
-      HANDLER_UDP_POOL_SIZE: 7
-      JAVA_OPTS: >-
-        -server
-        -XX:+UseG1GC
-        -XX:+UseFastAccessorMethods
-        -Xlog:disable
-        -XX:-PrintGC
-        -XX:+UseStringCache
-        -XX:-PrintGCDetails
-        -XX:-FlightRecorder
-        -XX:+DisableExplicitGC
+      - REDIS_URI=redis://rinha-redis:6379
+      - DEFAULT_PROCESSOR_URL=http://payment-processor-default:8080
     depends_on:
       - redis
-      - postgres
     networks:
       - backend
       - payment-processor
@@ -71,61 +31,45 @@ services:
           cpus: "0.6"
           memory: "125MB"
 
-  load-balancer:
-    image: nginx:latest
-    restart: always
+  nginx:
+    image: nginx:alpine
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
     depends_on:
-      - backend-1
-      - backend-2
+      - api-1
+      - api-2
     ports:
       - "9999:9999"
     networks:
       - backend
+      - payment-processor
     deploy:
       resources:
         limits:
-          cpus: "0.30"
-          memory: "100MB"
-    environment:
-      BACK_END_1_URL: backend-1
-      BACK_END_2_URL: backend-2
-      JAVA_OPTS: >-
-        -server
-        -XX:+UseG1GC
-        -XX:+UseFastAccessorMethods
-        -Xlog:disable
-        -XX:-PrintGC
-        -XX:+UseStringCache
-        -XX:-PrintGCDetails
-        -XX:-FlightRecorder
-        -XX:+DisableExplicitGC
+          cpus: "0.15"
+          memory: "50MB"
 
   redis:
-    image: redis:6-alpine
-    restart: always
+    image: redis:7.2-alpine
+    command: redis-server --save "" --appendonly no --maxclients 20000 --maxmemory-policy allkeys-lru
     networks:
       - backend
-
-  postgres:
-    image: postgres:17-alpine
-    restart: always
-    environment:
-      POSTGRES_DB: rinha
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: rinha123
-    volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - pgdata:/var/lib/postgresql/data
-    networks:
-      - backend
+      - payment-processor
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.15"
+          memory: "50MB"
 
 networks:
   backend:
     driver: bridge
   payment-processor:
     external: true
-
-volumes:
-  pgdata:
