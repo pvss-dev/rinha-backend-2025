@@ -20,8 +20,7 @@ public class RedisConfig {
     }
 
     @Bean
-    public ReactiveStringRedisTemplate reactiveRedisTemplate(
-            ReactiveRedisConnectionFactory factory) {
+    public ReactiveStringRedisTemplate reactiveStringRedisTemplate(ReactiveRedisConnectionFactory factory) {
         return new ReactiveStringRedisTemplate(factory);
     }
 }
