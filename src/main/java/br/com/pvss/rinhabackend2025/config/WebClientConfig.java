@@ -10,14 +10,20 @@ import org.springframework.web.reactive.function.client.WebClient;
 public class WebClientConfig {
 
     @Bean
-    public WebClient defaultProcessorClient(WebClient.Builder builder,
-                                            @Value("${payment.processor.default.url}") String url) {
+    public WebClient defaultProcessorClient(
+            WebClient.Builder builder,
+            @Value("${payment.processor.default.url}")
+            String url
+    ) {
         return builder.baseUrl(url).build();
     }
 
     @Bean
-    public WebClient fallbackProcessorClient(WebClient.Builder builder,
-                                             @Value("${payment.processor.fallback.url}") String url) {
+    public WebClient fallbackProcessorClient(
+            WebClient.Builder builder,
+            @Value("${payment.processor.fallback.url}")
+            String url
+    ) {
         return builder.baseUrl(url).build();
     }
 }

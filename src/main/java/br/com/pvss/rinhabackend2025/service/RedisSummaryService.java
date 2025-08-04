@@ -1,6 +1,7 @@
 package br.com.pvss.rinhabackend2025.service;
 
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -14,7 +15,7 @@ public class RedisSummaryService {
 
     private final ReactiveRedisTemplate<String, String> redis;
 
-    public RedisSummaryService(ReactiveRedisTemplate<String, String> redis) {
+    public RedisSummaryService(@Qualifier("reactiveRedisTemplate") ReactiveRedisTemplate<String, String> redis) {
         this.redis = redis;
     }
 
