@@ -14,8 +14,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.6"
-          memory: "100MB"
+          cpus: "0.45"
+          memory: "120MB"
 
   api-2:
     image: pvssdev/rinha-2025-redis-native:0.0.1
@@ -32,8 +32,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.6"
-          memory: "100MB"
+          cpus: "0.45"
+          memory: "120MB"
 
   nginx:
     image: nginx:alpine
@@ -50,8 +50,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.1"
-          memory: "15MB"
+          cpus: "0.50"
+          memory: "90MB"
 
   redis:
     image: redis:8.0.3-alpine
@@ -70,8 +70,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.2"
-          memory: "135MB"
+          cpus: "0.10"
+          memory: "20MB"
 
 networks:
   backend:

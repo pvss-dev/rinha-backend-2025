@@ -1,16 +1,14 @@
 package br.com.pvss.rinhabackend2025.controller;
 
-import br.com.pvss.rinhabackend2025.dto.PaymentDto;
+import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import br.com.pvss.rinhabackend2025.service.PaymentService;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
 
 @RestController
-@RequestMapping("/payments")
 public class PaymentController {
 
     private final PaymentService paymentService;
@@ -19,9 +17,9 @@ public class PaymentController {
         this.paymentService = paymentService;
     }
 
-    @PostMapping
-    public ResponseEntity<Void> create(@RequestBody PaymentDto dto) {
-        paymentService.queuePayment(dto);
-        return ResponseEntity.status(HttpStatus.ACCEPTED).build();
+    @PostMapping("/payments")
+    public Mono<ResponseEntity<Void>> createPayment(@RequestBody PaymentRequestDto request) {
+        return paymentService.processPayment(request)
+                .then(Mono.just(ResponseEntity.accepted().build()));
     }
 }

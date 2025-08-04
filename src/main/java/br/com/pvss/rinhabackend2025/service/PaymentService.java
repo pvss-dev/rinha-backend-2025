@@ -1,29 +1,32 @@
 package br.com.pvss.rinhabackend2025.service;
 
-import br.com.pvss.rinhabackend2025.dto.PaymentDto;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import br.com.pvss.rinhabackend2025.client.PaymentProcessorClient;
+import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
 
 @Service
 public class PaymentService {
 
-    public static final String PAYMENT_QUEUE = "rinha:queue:payments";
-    private final StringRedisTemplate redisTemplate;
-    private final ObjectMapper objectMapper;
+    private final HealthCheckService healthCheckService;
+    private final PaymentProcessorClient paymentProcessorClient;
+    private final RedisSummaryService redisSummaryService;
 
-    public PaymentService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
-        this.redisTemplate = redisTemplate;
-        this.objectMapper = objectMapper;
+    public PaymentService(HealthCheckService healthCheckService, PaymentProcessorClient paymentProcessorClient, RedisSummaryService redisSummaryService) {
+        this.healthCheckService = healthCheckService;
+        this.paymentProcessorClient = paymentProcessorClient;
+        this.redisSummaryService = redisSummaryService;
     }
 
-    public void queuePayment(PaymentDto dto) {
-        try {
-            String paymentJson = objectMapper.writeValueAsString(dto);
-            redisTemplate.opsForList().leftPush(PAYMENT_QUEUE, paymentJson);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Erro ao serializar PaymentDto para JSON", e);
-        }
+    public Mono<Void> processPayment(PaymentRequestDto request) {
+        return redisSummaryService.isAlreadyProcessed(request.correlationId())
+                .flatMap(alreadyProcessed -> {
+                    if (alreadyProcessed) return Mono.empty();
+
+                    return healthCheckService.getAvailableProcessor()
+                            .flatMap(processor -> paymentProcessorClient.sendPayment(processor, request))
+                            .flatMap(processor -> redisSummaryService.persistPaymentSummary(processor, request.amount()))
+                            .then(redisSummaryService.markAsProcessed(request.correlationId()));
+                });
     }
 }

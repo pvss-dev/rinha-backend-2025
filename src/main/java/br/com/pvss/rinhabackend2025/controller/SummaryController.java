@@ -1,60 +1,37 @@
 package br.com.pvss.rinhabackend2025.controller;
 
-import org.springframework.data.redis.core.StringRedisTemplate;
+import br.com.pvss.rinhabackend2025.service.RedisSummaryService;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.Map;
-import java.util.Set;
 
 @RestController
-@RequestMapping("/payments-summary")
 public class SummaryController {
 
-    private final StringRedisTemplate redisTemplate;
+    private final RedisSummaryService redisSummaryService;
 
-    public SummaryController(StringRedisTemplate redisTemplate) {
-        this.redisTemplate = redisTemplate;
+    public SummaryController(RedisSummaryService redisSummaryService) {
+        this.redisSummaryService = redisSummaryService;
     }
 
-    @GetMapping
-    public Map<String, Object> summary(
-            @RequestParam(required = false) String from,
-            @RequestParam(required = false) String to
-    ) {
-        long fromTimestamp = (from != null) ? Instant.parse(from).toEpochMilli() : 0;
-        long toTimestamp = (to != null) ? Instant.parse(to).toEpochMilli() : Long.MAX_VALUE;
-
-        Map<String, Object> defaultSummary = getSummaryForProcessor("default", fromTimestamp, toTimestamp);
-        Map<String, Object> fallbackSummary = getSummaryForProcessor("fallback", fromTimestamp, toTimestamp);
-
-        return Map.of(
-                "default", defaultSummary,
-                "fallback", fallbackSummary
-        );
+    @GetMapping("/payments-summary")
+    public Mono<Map<String, Map<String, Object>>> getSummary() {
+        return Mono.zip(
+                redisSummaryService.getSummary("default"),
+                redisSummaryService.getSummary("fallback")
+        ).map(tuple -> Map.of(
+                "default", mapWithDefaults(tuple.getT1()),
+                "fallback", mapWithDefaults(tuple.getT2())
+        ));
     }
 
-    private Map<String, Object> getSummaryForProcessor(String processorType, long fromTimestamp, long toTimestamp) {
-        String key = "rinha:payments:" + processorType;
-
-        Set<String> payments = redisTemplate.opsForZSet().rangeByScore(key, fromTimestamp, toTimestamp);
-
-        if (payments == null || payments.isEmpty()) {
-            return Map.of("totalRequests", 0L, "totalAmount", BigDecimal.ZERO);
-        }
-
-        long totalRequests = payments.size();
-        BigDecimal totalAmount = payments.stream()
-                .map(payment -> new BigDecimal(payment.split(":")[1]))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
+    private Map<String, Object> mapWithDefaults(Map<Object, Object> data) {
         return Map.of(
-                "totalRequests", totalRequests,
-                "totalAmount", totalAmount
+                "totalRequests", Integer.parseInt(data.getOrDefault("totalRequests", "0").toString()),
+                "totalAmount", new BigDecimal(data.getOrDefault("totalAmount", "0").toString())
         );
     }
 }
