@@ -101,6 +101,7 @@
                                 --no-fallback
                                 --enable-preview
                                 -H:+UnlockExperimentalVMOptions
+                                -H:+InlineBeforeAnalysis
                                 -O2
                                 -march=skylake
                             </BP_NATIVE_IMAGE_BUILD_ARGUMENTS>
