@@ -1,6 +1,6 @@
 services:
   api-1:
-    build: .
+    image: pvssdev/rinha-2025-redis-native:0.0.1
     environment:
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
@@ -18,7 +18,7 @@ services:
           memory: "100MB"
 
   api-2:
-    build: .
+    image: pvssdev/rinha-2025-redis-native:0.0.1
     environment:
       - SPRING_DATA_REDIS_HOST=redis
       - SPRING_DATA_REDIS_PORT=6379
