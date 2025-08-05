@@ -7,7 +7,6 @@ import java.math.BigDecimal;
 @RegisterReflectionForBinding
 public record PaymentRequestDto(
         String correlationId,
-        BigDecimal amount,
-        String requestedAt
+        BigDecimal amount
 ) {
 }
