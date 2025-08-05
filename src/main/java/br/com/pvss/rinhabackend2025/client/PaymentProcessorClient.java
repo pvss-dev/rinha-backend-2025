@@ -10,6 +10,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 
 @Component
 public class PaymentProcessorClient {
@@ -26,7 +28,9 @@ public class PaymentProcessorClient {
     }
 
     public Mono<ProcessorType> sendPayment(ProcessorType type, PaymentRequestDto request) {
-        PaymentDto payload = new PaymentDto(request.correlationId(), request.amount(), Instant.now());
+        String formattedDate = DateTimeFormatter.ISO_INSTANT.format(Instant.now());
+
+        PaymentDto payload = new PaymentDto(request.correlationId(), request.amount(), formattedDate);
 
         WebClient client = switch (type) {
             case DEFAULT -> defaultProcessorClient;
