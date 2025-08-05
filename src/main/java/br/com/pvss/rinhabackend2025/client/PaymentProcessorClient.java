@@ -4,6 +4,7 @@ import br.com.pvss.rinhabackend2025.dto.PaymentDto;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -35,6 +36,7 @@ public class PaymentProcessorClient {
         return client
                 .post()
                 .uri("/payments")
+                .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(payload)
                 .retrieve()
                 .toBodilessEntity()
