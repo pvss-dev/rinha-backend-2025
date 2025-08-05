@@ -3,6 +3,7 @@ package br.com.pvss.rinhabackend2025.client;
 import br.com.pvss.rinhabackend2025.dto.PaymentDto;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
@@ -12,21 +13,35 @@ import java.time.Instant;
 @Component
 public class PaymentProcessorClient {
 
-    private final WebClient.Builder webClientBuilder;
+    private final WebClient defaultProcessorClient;
+    private final WebClient fallbackProcessorClient;
 
-    public PaymentProcessorClient(WebClient.Builder webClientBuilder) {
-        this.webClientBuilder = webClientBuilder;
+    public PaymentProcessorClient(
+            @Qualifier("defaultProcessorClient") WebClient defaultProcessorClient,
+            @Qualifier("fallbackProcessorClient") WebClient fallbackProcessorClient
+    ) {
+        this.defaultProcessorClient = defaultProcessorClient;
+        this.fallbackProcessorClient = fallbackProcessorClient;
     }
 
     public Mono<ProcessorType> sendPayment(ProcessorType type, PaymentRequestDto request) {
         PaymentDto payload = new PaymentDto(request.correlationId(), request.amount(), Instant.now());
 
-        return webClientBuilder.build()
+        WebClient client = switch (type) {
+            case DEFAULT -> defaultProcessorClient;
+            case FALLBACK -> fallbackProcessorClient;
+        };
+
+        return client
                 .post()
-                .uri(type.getBaseUrl() + "/payments")
+                .uri("/payments")
                 .bodyValue(payload)
                 .retrieve()
-                .bodyToMono(String.class)
-                .thenReturn(type);
+                .toBodilessEntity()
+                .thenReturn(type)
+                .onErrorResume(e -> {
+                    System.err.println("Falha ao enviar pagamento para " + type + ": " + e.getMessage());
+                    return Mono.error(e);
+                });
     }
 }

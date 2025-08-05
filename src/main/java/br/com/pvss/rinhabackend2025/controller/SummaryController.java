@@ -29,9 +29,12 @@ public class SummaryController {
     }
 
     private Map<String, Object> mapWithDefaults(Map<Object, Object> data) {
+        long totalRequests = Long.parseLong(data.getOrDefault("totalRequests", "0").toString());
+        BigDecimal totalAmount = new BigDecimal(data.getOrDefault("totalAmount", "0").toString());
+
         return Map.of(
-                "totalRequests", Integer.parseInt(data.getOrDefault("totalRequests", "0").toString()),
-                "totalAmount", new BigDecimal(data.getOrDefault("totalAmount", "0").toString())
+                "totalRequests", totalRequests,
+                "totalAmount", totalAmount
         );
     }
 }

@@ -20,6 +20,6 @@ public class PaymentController {
     @PostMapping("/payments")
     public Mono<ResponseEntity<Void>> createPayment(@RequestBody PaymentRequestDto request) {
         return paymentService.processPayment(request)
-                .then(Mono.just(ResponseEntity.accepted().build()));
+                .thenReturn(ResponseEntity.accepted().build());
     }
 }
