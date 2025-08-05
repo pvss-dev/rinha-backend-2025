@@ -1,5 +1,6 @@
 package br.com.pvss.rinhabackend2025.service;
 
+import br.com.pvss.rinhabackend2025.dto.HealthResponse;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -124,8 +125,5 @@ public class HealthCheckService {
         boolean isExpired() {
             return System.currentTimeMillis() - timestamp > cacheDuration.toMillis();
         }
-    }
-
-    private record HealthResponse(boolean failing, int minResponseTime) {
     }
 }
