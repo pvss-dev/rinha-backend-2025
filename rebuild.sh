@@ -6,7 +6,7 @@
 # Use-o para garantir que as suas últimas alterações de código sejam de fato implantadas.
 
 # Define o nome da sua imagem para facilitar a manutenção
-IMAGE_NAME="pvssdev/rinhabackend-2025-java-spring-boot-native:0.0.1"
+IMAGE_NAME="pvssdev/rinha-backend-2025-java-spring-boot-native:0.0.1"
 
 echo "--- Passo 1: Parando e removendo contêineres antigos... ---"
 docker compose down
