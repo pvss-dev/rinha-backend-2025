@@ -15,6 +15,12 @@ echo "--- Passo 2: Removendo a imagem Docker antiga para evitar cache... ---"
 # O comando '|| true' garante que o script não pare se a imagem não existir
 docker rmi "$IMAGE_NAME" || true
 
+docker image prune -f
+
+docker builder prune -f
+
+docker volume prune -f
+
 echo "--- Passo 3: Limpando o projeto Maven... ---"
 ./mvnw clean
 
