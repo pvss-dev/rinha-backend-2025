@@ -59,8 +59,8 @@ services:
       "redis-server",
       "--save", "",
       "--appendonly", "no",
-      "--maxmemory", "110mb",
-      "--maxmemory-policy", "noeviction",
+      "--maxmemory", "18mb",
+      "--maxmemory-policy", "allkeys-lru",
       "--timeout", "0"
     ]
     ports:

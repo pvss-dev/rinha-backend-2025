@@ -31,3 +31,10 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Competition files
+/competition/docker-compose.yml
+/competition/INSTRUCOES.md
+/competition/requests.js
+/competition/rinha.js
+/competition/rinha-de-backend-2025_INSTRUCOES.md at main · zanfranceschi_rinha-de-backend-2025.pdf
