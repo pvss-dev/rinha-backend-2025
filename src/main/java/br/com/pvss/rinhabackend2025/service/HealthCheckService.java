@@ -16,70 +16,45 @@ public class HealthCheckService {
 
     private static final Logger log = LoggerFactory.getLogger(HealthCheckService.class);
     private static final Duration HEALTH_CHECK_TIMEOUT = Duration.ofSeconds(1);
-    private static final Duration CACHE_DURATION = Duration.ofSeconds(3);
+    private static final Duration CACHE_DURATION = Duration.ofSeconds(6);
 
     private final WebClient defaultProcessorClient;
-    private final WebClient fallbackProcessorClient;
-
     private volatile HealthState defaultHealth = new HealthState(true);
-    private volatile HealthState fallbackHealth = new HealthState(true);
 
-    public HealthCheckService(
-            @Qualifier("defaultProcessorClient") WebClient defaultProcessorClient,
-            @Qualifier("fallbackProcessorClient") WebClient fallbackProcessorClient) {
+    public HealthCheckService(@Qualifier("defaultProcessorClient") WebClient defaultProcessorClient) {
         this.defaultProcessorClient = defaultProcessorClient;
-        this.fallbackProcessorClient = fallbackProcessorClient;
     }
 
     public Mono<ProcessorType> getAvailableProcessor() {
-        return checkHealth(ProcessorType.DEFAULT)
-                .flatMap(defaultHealthy -> {
-                    if (defaultHealthy) {
-                        return Mono.just(ProcessorType.DEFAULT);
+        return checkHealth()
+                .map(isDefaultHealthy -> {
+                    if (Boolean.TRUE.equals(isDefaultHealthy)) {
+                        return ProcessorType.DEFAULT;
                     }
-                    return checkHealth(ProcessorType.FALLBACK)
-                            .map(fallbackHealthy -> fallbackHealthy ? ProcessorType.FALLBACK : ProcessorType.DEFAULT);
+                    return ProcessorType.FALLBACK;
                 });
     }
 
-    private Mono<Boolean> checkHealth(ProcessorType type) {
-        HealthState current = getCurrentHealthState(type);
-
-        if (!current.isExpired()) {
-            return Mono.just(current.isHealthy());
+    private Mono<Boolean> checkHealth() {
+        if (!defaultHealth.isExpired()) {
+            return Mono.just(defaultHealth.isHealthy());
         }
 
-        WebClient client = getClientForProcessor(type);
-
-        return client.get()
+        return defaultProcessorClient.get()
                 .uri("/payments/service-health")
                 .retrieve()
                 .bodyToMono(HealthResponse.class)
                 .timeout(HEALTH_CHECK_TIMEOUT)
-                .map(response -> {
-                    boolean healthy = !response.failing();
-                    updateHealthState(type, healthy);
-                    return healthy;
+                .map(response -> !response.failing())
+                .doOnSuccess(healthy -> {
+                    log.info("Health check do Default atualizado para: {}", healthy ? "SAUDÁVEL" : "FALHANDO");
+                    this.defaultHealth = new HealthState(healthy);
                 })
-                .onErrorReturn(false)
-                .doOnNext(healthy -> updateHealthState(type, healthy));
-    }
-
-    private HealthState getCurrentHealthState(ProcessorType type) {
-        return type == ProcessorType.DEFAULT ? defaultHealth : fallbackHealth;
-    }
-
-    private void updateHealthState(ProcessorType type, boolean healthy) {
-        HealthState newState = new HealthState(healthy);
-        if (type == ProcessorType.DEFAULT) {
-            defaultHealth = newState;
-        } else {
-            fallbackHealth = newState;
-        }
-    }
-
-    private WebClient getClientForProcessor(ProcessorType type) {
-        return type == ProcessorType.DEFAULT ? defaultProcessorClient : fallbackProcessorClient;
+                .onErrorResume(e -> {
+                    log.warn("Health check do Default falhou: {}. Considerando-o indisponível.", e.getMessage());
+                    this.defaultHealth = new HealthState(false);
+                    return Mono.just(false);
+                });
     }
 
     private static class HealthState {
@@ -96,7 +71,7 @@ public class HealthCheckService {
         }
 
         boolean isExpired() {
-            return System.currentTimeMillis() - timestamp > CACHE_DURATION.toMillis();
+            return (System.currentTimeMillis() - timestamp) > CACHE_DURATION.toMillis();
         }
     }
 }

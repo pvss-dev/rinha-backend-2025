@@ -11,14 +11,12 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 @RestController
 public class SummaryController {
 
     private static final Logger log = LoggerFactory.getLogger(SummaryController.class);
-    private static final DateTimeFormatter ISO_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
     private final RedisSummaryService redisSummaryService;
 
     public SummaryController(RedisSummaryService redisSummaryService) {
@@ -74,9 +72,19 @@ public class SummaryController {
     }
 
     private BigDecimal parseBigDecimal(Object value) {
-        if (value == null) return BigDecimal.ZERO;
-        if (value instanceof BigDecimal bd) return bd;
-        if (value instanceof Number num) return new BigDecimal(num.toString());
+        switch (value) {
+            case null -> {
+                return BigDecimal.ZERO;
+            }
+            case BigDecimal bd -> {
+                return bd;
+            }
+            case Number num -> {
+                return new BigDecimal(num.toString());
+            }
+            default -> {
+            }
+        }
         try {
             return new BigDecimal(value.toString());
         } catch (NumberFormatException e) {

@@ -1,7 +1,7 @@
 package br.com.pvss.rinhabackend2025.client;
 
-import br.com.pvss.rinhabackend2025.dto.PaymentDto;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
+import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,9 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 
 @Component
 public class PaymentProcessorClient {
@@ -31,10 +29,10 @@ public class PaymentProcessorClient {
     }
 
     public Mono<ProcessorType> sendPayment(ProcessorType type, PaymentRequestDto request) {
-        Map<String, Object> payload = Map.of(
-                "correlationId", request.correlationId().toString(),
-                "amount", request.amount(),
-                "requestedAt", Instant.now().toString()
+        ProcessorPaymentRequest payload = new ProcessorPaymentRequest(
+                request.correlationId(),
+                request.amount(),
+                Instant.now()
         );
 
         WebClient client = switch (type) {
@@ -49,12 +47,7 @@ public class PaymentProcessorClient {
                 .bodyValue(payload)
                 .retrieve()
                 .toBodilessEntity()
-                .timeout(Duration.ofSeconds(8))
                 .thenReturn(type)
-                .doOnSuccess(t -> log.debug("Pagamento enviado com sucesso para {}", type))
-                .onErrorResume(e -> {
-                    log.warn("Falha ao enviar pagamento para {}: {}", type, e.getMessage());
-                    return Mono.error(e);
-                });
+                .doOnError(e -> log.warn("Falha ao enviar pagamento para {}: {}", type, e.getMessage()));
     }
 }

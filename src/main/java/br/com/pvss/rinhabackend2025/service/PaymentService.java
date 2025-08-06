@@ -34,12 +34,11 @@ public class PaymentService {
         return redisSummaryService.isAlreadyProcessed(correlationId)
                 .flatMap(alreadyProcessed -> {
                     if (Boolean.TRUE.equals(alreadyProcessed)) {
-                        log.debug("Pagamento já processado (idempotente): {}", correlationId);
+                        log.info("Pagamento já processado (idempotente): {}", correlationId);
                         return Mono.empty();
                     }
-
                     return processPaymentWithFallback(request)
-                            .then(redisSummaryService.markAsProcessed(correlationId));
+                            .then(redisSummaryService.markAsProcessed(correlationId, request.amount()));
                 });
     }
 
@@ -50,24 +49,23 @@ public class PaymentService {
                             ProcessorType fallbackProcessor = (primaryProcessor == ProcessorType.DEFAULT)
                                     ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
 
-                            log.warn("Tentativa primária falhou. Tentando fallback: {}", fallbackProcessor);
-
-                            return paymentProcessorClient.sendPayment(fallbackProcessor, request)
-                                    .flatMap(usedProcessor ->
-                                            redisSummaryService.persistPaymentSummary(usedProcessor, request.amount()));
+                            log.warn("Tentativa primária com {} falhou. Tentando fallback: {}", primaryProcessor, fallbackProcessor);
+                            return attemptPayment(fallbackProcessor, request);
                         }));
     }
 
     private Mono<Void> attemptPayment(ProcessorType processor, PaymentRequestDto request) {
         return paymentProcessorClient.sendPayment(processor, request)
-                .retryWhen(Retry.fixedDelay(1, Duration.ofMillis(200))
-                        .filter(this::isRetryableError))
+                .retryWhen(Retry.backoff(2, Duration.ofMillis(100)).maxBackoff(Duration.ofSeconds(1))
+                        .filter(this::isRetryableError)
+                        .doBeforeRetry(retrySignal -> log.warn("Tentando novamente para {} - Tentativa #{}", processor, retrySignal.totalRetries() + 1)))
                 .flatMap(usedProcessor ->
-                        redisSummaryService.persistPaymentSummary(usedProcessor, request.amount()));
+                        redisSummaryService.persistPaymentSummary(usedProcessor, request.amount(), request.correlationId()));
     }
 
     private boolean isRetryableError(Throwable error) {
+        if (error instanceof java.util.concurrent.TimeoutException) return true;
         String message = error.getMessage().toLowerCase();
-        return message.contains("timeout") || message.contains("connection");
+        return message.contains("timeout") || message.contains("connection reset") || message.contains("connection refused");
     }
 }
