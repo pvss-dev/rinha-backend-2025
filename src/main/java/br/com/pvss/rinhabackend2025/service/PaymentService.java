@@ -24,7 +24,7 @@ public class PaymentService {
     }
 
     public Mono<Void> processPayment(PaymentRequestDto request) {
-        return redisSummaryService.isAlreadyProcessed(request.correlationId())
+        return redisSummaryService.isAlreadyProcessed(request.correlationId().toString())
                 .flatMap(alreadyProcessed -> {
                     if (Boolean.TRUE.equals(alreadyProcessed)) {
                         log.debug("Requisição idempotente ignorada: {}", request.correlationId());
@@ -41,7 +41,7 @@ public class PaymentService {
                                             return attemptPayment(fallback, request);
                                         });
                             })
-                            .then(redisSummaryService.markAsProcessed(request.correlationId()));
+                            .then(redisSummaryService.markAsProcessed(request.correlationId().toString()));
                 });
     }
 

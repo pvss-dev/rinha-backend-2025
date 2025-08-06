@@ -1,13 +1,12 @@
 package br.com.pvss.rinhabackend2025.dto;
 
-import org.springframework.aot.hint.annotation.RegisterReflectionForBinding;
-
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
 
-@RegisterReflectionForBinding
 public record PaymentDto(
-        String correlationId,
+        UUID correlationId,
         BigDecimal amount,
-        String requestedAt
+        Instant requestedAt
 ) {
 }
