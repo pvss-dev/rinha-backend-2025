@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Mono;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Map;
 
@@ -35,60 +34,20 @@ public class SummaryController {
 
         log.debug("Requisição de summary - from: {}, to: {}", from, to);
 
-        return Mono.zip(
-                redisSummaryService.getSummary("default", from, to),
-                redisSummaryService.getSummary("fallback", from, to)
-        ).map(tuple -> {
-            Map<String, Object> defaultSummary = createSummaryResponse(tuple.getT1());
-            Map<String, Object> fallbackSummary = createSummaryResponse(tuple.getT2());
+        Mono<Map<String, Object>> defaultSummaryMono = redisSummaryService.getSummary("default", from, to);
+        Mono<Map<String, Object>> fallbackSummaryMono = redisSummaryService.getSummary("fallback", from, to);
 
-            log.debug("Summary response - default: {}, fallback: {}", defaultSummary, fallbackSummary);
+        return Mono.zip(defaultSummaryMono, fallbackSummaryMono)
+                .map(tuple -> {
+                    Map<String, Object> defaultSummary = tuple.getT1();
+                    Map<String, Object> fallbackSummary = tuple.getT2();
 
-            return Map.of(
-                    "default", defaultSummary,
-                    "fallback", fallbackSummary
-            );
-        });
-    }
+                    log.debug("Summary response - default: {}, fallback: {}", defaultSummary, fallbackSummary);
 
-    private Map<String, Object> createSummaryResponse(Map<Object, Object> data) {
-        long totalRequests = parseLong(data.get("totalRequests"));
-        BigDecimal totalAmount = parseBigDecimal(data.get("totalAmount"));
-
-        return Map.of(
-                "totalRequests", totalRequests,
-                "totalAmount", totalAmount
-        );
-    }
-
-    private long parseLong(Object value) {
-        if (value == null) return 0L;
-        if (value instanceof Number num) return num.longValue();
-        try {
-            return Long.parseLong(value.toString());
-        } catch (NumberFormatException e) {
-            return 0L;
-        }
-    }
-
-    private BigDecimal parseBigDecimal(Object value) {
-        switch (value) {
-            case null -> {
-                return BigDecimal.ZERO;
-            }
-            case BigDecimal bd -> {
-                return bd;
-            }
-            case Number num -> {
-                return new BigDecimal(num.toString());
-            }
-            default -> {
-            }
-        }
-        try {
-            return new BigDecimal(value.toString());
-        } catch (NumberFormatException e) {
-            return BigDecimal.ZERO;
-        }
+                    return Map.of(
+                            "default", defaultSummary,
+                            "fallback", fallbackSummary
+                    );
+                });
     }
 }

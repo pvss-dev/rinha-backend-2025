@@ -6,6 +6,7 @@ import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
@@ -29,43 +30,49 @@ public class PaymentService {
     }
 
     public Mono<Void> processPayment(PaymentRequestDto request) {
-        String correlationId = request.correlationId().toString();
-
-        return redisSummaryService.isAlreadyProcessed(correlationId)
+        return redisSummaryService.isAlreadyProcessed(request.correlationId().toString())
                 .flatMap(alreadyProcessed -> {
                     if (Boolean.TRUE.equals(alreadyProcessed)) {
-                        log.info("Pagamento já processado (idempotente): {}", correlationId);
+                        log.info("Pagamento já processado (idempotente): {}", request.correlationId());
                         return Mono.empty();
                     }
-                    return processPaymentWithFallback(request)
-                            .then(redisSummaryService.markAsProcessed(correlationId, request.amount()));
+                    return processPaymentWithFallback(request);
                 });
     }
 
     private Mono<Void> processPaymentWithFallback(PaymentRequestDto request) {
         return healthCheckService.getAvailableProcessor()
-                .flatMap(primaryProcessor -> attemptPayment(primaryProcessor, request)
-                        .onErrorResume(primaryError -> {
-                            ProcessorType fallbackProcessor = (primaryProcessor == ProcessorType.DEFAULT)
-                                    ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
+                .flatMap(primaryProcessor -> {
+                    ProcessorType fallbackProcessor = (primaryProcessor == ProcessorType.DEFAULT)
+                            ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
 
-                            log.warn("Tentativa primária com {} falhou. Tentando fallback: {}", primaryProcessor, fallbackProcessor);
-                            return attemptPayment(fallbackProcessor, request);
-                        }));
+                    return attemptPayment(primaryProcessor, request)
+                            .onErrorResume(primaryError -> {
+                                log.warn("Tentativa primária com {} falhou. Tentando fallback: {}", primaryProcessor, fallbackProcessor, primaryError);
+                                return attemptPayment(fallbackProcessor, request);
+                            });
+                });
     }
 
     private Mono<Void> attemptPayment(ProcessorType processor, PaymentRequestDto request) {
         return paymentProcessorClient.sendPayment(processor, request)
-                .retryWhen(Retry.backoff(2, Duration.ofMillis(100)).maxBackoff(Duration.ofSeconds(1))
+                .retryWhen(Retry.backoff(2, Duration.ofMillis(100))
+                        .maxBackoff(Duration.ofMillis(500))
                         .filter(this::isRetryableError)
-                        .doBeforeRetry(retrySignal -> log.warn("Tentando novamente para {} - Tentativa #{}", processor, retrySignal.totalRetries() + 1)))
+                        .doBeforeRetry(retrySignal -> log.warn("Retentativa para {} - Tentativa #{}. Causa: {}",
+                                processor,
+                                retrySignal.totalRetries() + 1,
+                                retrySignal.failure().getMessage()))
+                )
                 .flatMap(usedProcessor ->
                         redisSummaryService.persistPaymentSummary(usedProcessor, request.amount(), request.correlationId()));
     }
 
     private boolean isRetryableError(Throwable error) {
         if (error instanceof java.util.concurrent.TimeoutException) return true;
-        String message = error.getMessage().toLowerCase();
-        return message.contains("timeout") || message.contains("connection reset") || message.contains("connection refused");
+        if (error instanceof WebClientResponseException wcre) {
+            return wcre.getStatusCode().is5xxServerError() || wcre.getStatusCode().value() == 429;
+        }
+        return false;
     }
 }

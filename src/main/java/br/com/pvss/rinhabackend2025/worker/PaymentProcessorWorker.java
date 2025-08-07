@@ -32,8 +32,10 @@ public class PaymentProcessorWorker {
         paymentQueueService.redis.opsForList()
                 .rightPop(PaymentQueueService.PAYMENT_QUEUE_KEY, Duration.ofSeconds(5))
                 .repeat()
-                .publishOn(Schedulers.parallel())
-                .flatMap(this::processPayload, 100)
+                .parallel(100)
+                .runOn(Schedulers.parallel())
+                .flatMap(this::processPayload)
+                .sequential()
                 .subscribe(
                         null,
                         err -> log.error("Erro fatal no worker de pagamentos. Ele será reiniciado.", err),
@@ -47,10 +49,9 @@ public class PaymentProcessorWorker {
             PaymentRequestDto request = new PaymentRequestDto(UUID.fromString(parts[0]), new BigDecimal(parts[1]));
 
             return paymentService.processPayment(request)
-                    .publishOn(Schedulers.boundedElastic())
-                    .doOnError(e -> {
+                    .onErrorResume(e -> {
                         log.error("Falha persistente ao processar {}. Devolvendo para a fila.", request.correlationId(), e);
-                        paymentQueueService.enqueuePayment(request).subscribe();
+                        return paymentQueueService.enqueuePaymentAtHead(request).then();
                     });
         } catch (Exception e) {
             log.error("Payload com formato inválido descartado: '{}'", payload, e);
