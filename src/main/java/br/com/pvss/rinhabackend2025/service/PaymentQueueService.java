@@ -22,6 +22,6 @@ public class PaymentQueueService {
 
     public Mono<Long> enqueuePaymentAtHead(PaymentRequestDto request) {
         String payload = request.correlationId().toString() + ":" + request.amount().toPlainString();
-        return redis.opsForList().rightPush(PAYMENT_QUEUE_KEY, payload);
+        return redis.opsForList().leftPush(PAYMENT_QUEUE_KEY, payload);
     }
 }
