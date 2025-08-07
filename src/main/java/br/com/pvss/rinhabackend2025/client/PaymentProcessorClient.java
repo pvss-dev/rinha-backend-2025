@@ -40,14 +40,20 @@ public class PaymentProcessorClient {
             case FALLBACK -> fallbackProcessorClient;
         };
 
-        return client
-                .post()
+        return client.post()
                 .uri("/payments")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(payload)
                 .retrieve()
                 .toBodilessEntity()
                 .thenReturn(type)
-                .doOnError(e -> log.warn("Falha ao enviar pagamento para {}: {}", type, e.getMessage()));
+                .doOnError(e -> log.warn("Falha ao enviar a {}: {}", type, e.getMessage()))
+                .onErrorResume(e -> {
+                    if (type == ProcessorType.DEFAULT) {
+                        log.info("Tentando fallback para pagamento {}", request.correlationId());
+                        return sendPayment(ProcessorType.FALLBACK, request);
+                    }
+                    return Mono.error(e);
+                });
     }
 }
