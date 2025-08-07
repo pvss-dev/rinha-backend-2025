@@ -7,7 +7,8 @@ services:
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
       - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - backend
       - payment-processor
@@ -15,7 +16,7 @@ services:
       resources:
         limits:
           cpus: "0.45"
-          memory: "120MB"
+          memory: "150MB"
 
   api-2:
     image: pvssdev/rinha-backend-2025-java-spring-boot-native:0.0.1
@@ -25,7 +26,8 @@ services:
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
       - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - backend
       - payment-processor
@@ -33,7 +35,7 @@ services:
       resources:
         limits:
           cpus: "0.45"
-          memory: "120MB"
+          memory: "150MB"
 
   nginx:
     image: nginx:alpine
@@ -51,10 +53,10 @@ services:
       resources:
         limits:
           cpus: "0.50"
-          memory: "90MB"
+          memory: "30MB"
 
   redis:
-    image: redis:8.0.3-alpine
+    image: redis:alpine
     command: [
       "redis-server",
       "--save", "",
@@ -67,6 +69,11 @@ services:
       - "6379:6379"
     networks:
       - backend
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 2s
+      timeout: 3s
+      retries: 5
     deploy:
       resources:
         limits:
