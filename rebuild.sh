@@ -1,1 +1,36 @@
-#!/bin/bash# Este script para e remove os contêineres antigos, limpa a imagem Docker antiga,# reconstrói a imagem nativa do Spring Boot a partir do código-fonte mais recente# e sobe os novos contêineres.# Use-o para garantir que as suas últimas alterações de código sejam de fato implantadas.# Define o nome da sua imagem para facilitar a manutençãoIMAGE_NAME="pvssdev/rinha-backend-2025-java-spring-boot-native:0.0.1"echo "--- Passo 1: Parando e removendo contêineres antigos... ---"docker compose downecho "--- Passo 2: Removendo a imagem Docker antiga para evitar cache... ---"# O comando '|| true' garante que o script não pare se a imagem não existirdocker rmi "$IMAGE_NAME" || truedocker image prune -fdocker builder prune -fdocker volume prune -fecho "--- Passo 3: Limpando o projeto Maven... ---"./mvnw cleanecho "--- Passo 4: Reconstruindo a imagem nativa do Spring Boot... ---"# Usamos o perfil 'native' para compilar./mvnw package -Pnative spring-boot:build-imageecho "--- Passo 5: Subindo os novos contêineres... ---"docker compose up -decho "---"echo "✅ Processo concluído! A sua aplicação foi reconstruída e está em execução."echo "---"
+#!/bin/bash
+
+# Este script para e remove os contêineres antigos, limpa a imagem Docker antiga,
+# reconstrói a imagem nativa do Spring Boot a partir do código-fonte mais recente
+# e sobe os novos contêineres.
+# Use-o para garantir que as suas últimas alterações de código sejam de fato implantadas.
+
+# Define o nome da sua imagem para facilitar a manutenção
+IMAGE_NAME="pvssdev/rinha-backend-2025-java-spring-boot-native:0.0.1"
+
+echo "--- Passo 1: Parando e removendo contêineres antigos... ---"
+docker compose down
+
+echo "--- Passo 2: Removendo a imagem Docker antiga para evitar cache... ---"
+# O comando '|| true' garante que o script não pare se a imagem não existir
+docker rmi "$IMAGE_NAME" || true
+
+docker image prune -f
+
+docker builder prune -f
+
+docker volume prune -f
+
+echo "--- Passo 3: Limpando o projeto Maven... ---"
+./mvnw clean
+
+echo "--- Passo 4: Reconstruindo a imagem nativa do Spring Boot... ---"
+# Usamos o perfil 'native' para compilar
+./mvnw package -Pnative spring-boot:build-image
+
+echo "--- Passo 5: Subindo os novos contêineres... ---"
+docker compose up -d
+
+echo "---"
+echo "✅ Processo concluído! A sua aplicação foi reconstruída e está em execução."
+echo "---"
