@@ -1,7 +1,9 @@
 package br.com.pvss.rinhabackend2025.config;
 
 import io.netty.channel.ChannelOption;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -12,45 +14,42 @@ import reactor.netty.resources.ConnectionProvider;
 import java.time.Duration;
 
 @Configuration
+@EnableConfigurationProperties(ProcessorPoolProperties.class)
 public class WebClientConfig {
 
     @Bean
     public ConnectionProvider processorConnectionProvider(ProcessorPoolProperties props) {
-        return ConnectionProvider.builder("processor-pool")
+        return ConnectionProvider.builder("pp")
                 .maxConnections(props.getMaxConnections())
                 .pendingAcquireTimeout(props.getAcquireTimeout())
                 .pendingAcquireMaxCount(props.getPendingAcquireMaxCount())
                 .build();
     }
 
-    @Bean("defaultProcessorClient")
-    public WebClient defaultProcessorClient(
-            WebClient.Builder builder,
-            ConnectionProvider processorConnectionProvider,
-            @Value("${payment.processor.default.url}") String url
-    ) {
-        HttpClient httpClient = HttpClient.create(processorConnectionProvider)
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
-                .responseTimeout(Duration.ofSeconds(5));
+    private HttpClient httpClient(ConnectionProvider provider) {
+        return HttpClient.create(provider)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 300)
+                .responseTimeout(Duration.ofMillis(1500));
+    }
 
+    @Bean
+    @Qualifier("defaultProcessorClient")
+    public WebClient defaultProcessorClient(WebClient.Builder builder,
+                                            ConnectionProvider processorConnectionProvider,
+                                            @Value("${payment.processor.default.url}") String url) {
         return builder
-                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .clientConnector(new ReactorClientHttpConnector(httpClient(processorConnectionProvider)))
                 .baseUrl(url)
                 .build();
     }
 
-    @Bean("fallbackProcessorClient")
-    public WebClient fallbackProcessorClient(
-            WebClient.Builder builder,
-            ConnectionProvider processorConnectionProvider,
-            @Value("${payment.processor.fallback.url}") String url
-    ) {
-        HttpClient httpClient = HttpClient.create(processorConnectionProvider)
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
-                .responseTimeout(Duration.ofSeconds(5));
-
+    @Bean
+    @Qualifier("fallbackProcessorClient")
+    public WebClient fallbackProcessorClient(WebClient.Builder builder,
+                                             ConnectionProvider processorConnectionProvider,
+                                             @Value("${payment.processor.fallback.url}") String url) {
         return builder
-                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .clientConnector(new ReactorClientHttpConnector(httpClient(processorConnectionProvider)))
                 .baseUrl(url)
                 .build();
     }

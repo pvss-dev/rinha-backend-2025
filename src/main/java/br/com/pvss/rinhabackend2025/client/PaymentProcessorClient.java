@@ -11,20 +11,17 @@ import reactor.core.publisher.Mono;
 @Component
 public class PaymentProcessorClient {
 
-    private final WebClient defaultProcessorClient;
-    private final WebClient fallbackProcessorClient;
+    private final WebClient defaultClient;
+    private final WebClient fallbackClient;
 
-    public PaymentProcessorClient(
-            @Qualifier("defaultProcessorClient") WebClient defaultProcessorClient,
-            @Qualifier("fallbackProcessorClient") WebClient fallbackProcessorClient
-    ) {
-        this.defaultProcessorClient = defaultProcessorClient;
-        this.fallbackProcessorClient = fallbackProcessorClient;
+    public PaymentProcessorClient(@Qualifier("defaultProcessorClient") WebClient defaultClient,
+                                  @Qualifier("fallbackProcessorClient") WebClient fallbackClient) {
+        this.defaultClient = defaultClient;
+        this.fallbackClient = fallbackClient;
     }
 
     public Mono<ProcessorType> sendPayment(ProcessorType type, ProcessorPaymentRequest payload) {
-        WebClient client = (type == ProcessorType.DEFAULT) ? defaultProcessorClient : fallbackProcessorClient;
-
+        WebClient client = (type == ProcessorType.DEFAULT) ? defaultClient : fallbackClient;
         return client.post()
                 .uri("/payments")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -2,40 +2,34 @@ services:
   api-1:
     image: pvssdev/rinha-backend-2025-java-spring-boot-native:0.0.1
     environment:
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
       - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
-    depends_on:
-      redis:
-        condition: service_healthy
+      - SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/rinha
+    depends_on: [ mongodb ]
     networks:
       - backend
       - payment-processor
     deploy:
       resources:
         limits:
-          cpus: "0.45"
-          memory: "150MB"
+          cpus: "0.5"
+          memory: "90MB"
 
   api-2:
     image: pvssdev/rinha-backend-2025-java-spring-boot-native:0.0.1
     environment:
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
       - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
-    depends_on:
-      redis:
-        condition: service_healthy
+      - SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/rinha
+    depends_on: [ mongodb ]
     networks:
       - backend
       - payment-processor
     deploy:
       resources:
         limits:
-          cpus: "0.45"
-          memory: "150MB"
+          cpus: "0.5"
+          memory: "90MB"
 
   nginx:
     image: nginx:alpine
@@ -52,33 +46,26 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.50"
+          cpus: "0.2"
           memory: "30MB"
 
-  redis:
-    image: redis:alpine
-    command: [
-      "redis-server",
-      "--save", "",
-      "--appendonly", "no",
-      "--maxmemory", "18mb",
-      "--maxmemory-policy", "allkeys-lru",
-      "--timeout", "0"
-    ]
-    ports:
-      - "6379:6379"
-    networks:
-      - backend
+  mongodb:
+    image: mongo:7.0-jammy
+    container_name: mongodb
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 2s
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      interval: 5s
       timeout: 3s
       retries: 5
+    ports:
+      - "27017:27017"
+    networks:
+      - backend
     deploy:
       resources:
         limits:
-          cpus: "0.10"
-          memory: "20MB"
+          cpus: "0.3"
+          memory: "140MB"
 
 networks:
   backend:

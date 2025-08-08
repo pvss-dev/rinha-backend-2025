@@ -1,7 +1,7 @@
 package br.com.pvss.rinhabackend2025.controller;
 
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
-import br.com.pvss.rinhabackend2025.service.PaymentQueueService;
+import br.com.pvss.rinhabackend2025.service.PaymentService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -11,10 +11,10 @@ import reactor.core.publisher.Mono;
 @RestController
 public class PaymentController {
 
-    private final PaymentQueueService paymentQueueService;
+    private final PaymentService service;
 
-    public PaymentController(PaymentQueueService paymentQueueService) {
-        this.paymentQueueService = paymentQueueService;
+    public PaymentController(PaymentService service) {
+        this.service = service;
     }
 
     @PostMapping("/payments")
@@ -22,8 +22,6 @@ public class PaymentController {
         if (request == null || request.correlationId() == null || request.amount() == null) {
             return Mono.just(ResponseEntity.badRequest().build());
         }
-
-        return paymentQueueService.enqueuePayment(request)
-                .thenReturn(ResponseEntity.accepted().build());
+        return service.processPayment(request).thenReturn(ResponseEntity.accepted().build());
     }
 }

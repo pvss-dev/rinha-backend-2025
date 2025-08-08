@@ -4,12 +4,14 @@ import br.com.pvss.rinhabackend2025.client.PaymentProcessorClient;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
+import br.com.pvss.rinhabackend2025.model.ReceivedRequest;
+import br.com.pvss.rinhabackend2025.repository.ReceivedRequestRepo;
+import com.mongodb.DuplicateKeyException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -19,60 +21,63 @@ public class PaymentService {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
-    private final HealthCheckService healthCheckService;
-    private final PaymentProcessorClient paymentProcessorClient;
-    private final RedisSummaryService redisSummaryService;
+    private final ReceivedRequestRepo receivedRepo;
+    private final MongoSummaryService summary;
+    private final HealthCheckService health;
+    private final PaymentProcessorClient client;
 
-    public PaymentService(HealthCheckService healthCheckService,
-                          PaymentProcessorClient paymentProcessorClient,
-                          RedisSummaryService redisSummaryService) {
-        this.healthCheckService = healthCheckService;
-        this.paymentProcessorClient = paymentProcessorClient;
-        this.redisSummaryService = redisSummaryService;
+    public PaymentService(ReceivedRequestRepo receivedRepo,
+                          MongoSummaryService summary,
+                          HealthCheckService health,
+                          PaymentProcessorClient client) {
+        this.receivedRepo = receivedRepo;
+        this.summary = summary;
+        this.health = health;
+        this.client = client;
     }
 
     public Mono<Void> processPayment(PaymentRequestDto request) {
         Instant requestedAt = Instant.now();
         ProcessorPaymentRequest payload = new ProcessorPaymentRequest(
-                request.correlationId(),
-                request.amount(),
-                requestedAt
+                request.correlationId(), request.amount(), requestedAt
         );
 
-        return healthCheckService.getAvailableProcessor()
-                .flatMap(primary -> {
-                    ProcessorType fallback = (primary == ProcessorType.DEFAULT)
-                            ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
+        var rec = new ReceivedRequest(request.correlationId(), requestedAt);
 
-                    return attemptPayment(primary, payload)
-                            .onErrorResume(err -> {
-                                if (!isRetryableError(err)) return Mono.error(err);
-                                log.warn("Primário {} falhou; tentando fallback {}. Causa: {}", primary, fallback, err.toString());
-                                return attemptPayment(fallback, payload);
-                            });
-                });
+        return receivedRepo.save(rec)
+                .onErrorResume(DuplicateKeyException.class, e -> Mono.empty())
+                .then(health.getAvailableProcessor())
+                .flatMap(primary -> attemptOnce(primary, payload)
+                        .onErrorResume(err -> {
+                            if (isRetryable(err)) {
+                                return attemptOnce(primary, payload);
+                            }
+                            return Mono.error(err);
+                        })
+                        .onErrorResume(err -> {
+                            if (isServerOrRate(err)) {
+                                ProcessorType fb = (primary == ProcessorType.DEFAULT) ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
+                                log.warn("Primário {} falhou com 5xx/429. Fallback: {}", primary, fb);
+                                return attemptOnce(fb, payload);
+                            }
+                            return Mono.error(err);
+                        })
+                )
+                .flatMap(used -> summary.persistPaymentSummary(
+                        used, request.amount(), request.correlationId(), requestedAt
+                ));
     }
 
-    private Mono<Void> attemptPayment(ProcessorType processor, ProcessorPaymentRequest payload) {
-        return paymentProcessorClient.sendPayment(processor, payload)
-                .retryWhen(Retry.backoff(2, Duration.ofMillis(50))
-                        .filter(this::isRetryableError))
-                .flatMap(used ->
-                        redisSummaryService.persistPaymentSummary(
-                                used,
-                                payload.amount(),
-                                payload.correlationId(),
-                                payload.requestedAt()
-                        )
-                );
+    private Mono<ProcessorType> attemptOnce(ProcessorType p, ProcessorPaymentRequest payload) {
+        return client.sendPayment(p, payload).timeout(Duration.ofMillis(1500));
     }
 
-    private boolean isRetryableError(Throwable error) {
-        if (error instanceof java.util.concurrent.TimeoutException) return true;
-        if (error instanceof WebClientResponseException wcre) {
-            int s = wcre.getStatusCode().value();
-            return s == 429 || (s >= 500 && s < 600);
-        }
-        return false;
+    private static boolean isRetryable(Throwable t) {
+        return t instanceof java.util.concurrent.TimeoutException || isServerOrRate(t);
+    }
+
+    private static boolean isServerOrRate(Throwable t) {
+        return (t instanceof WebClientResponseException w) &&
+               (w.getStatusCode().is5xxServerError() || w.getStatusCode().value() == 429);
     }
 }

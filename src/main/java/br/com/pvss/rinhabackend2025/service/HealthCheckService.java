@@ -2,77 +2,91 @@ package br.com.pvss.rinhabackend2025.service;
 
 import br.com.pvss.rinhabackend2025.dto.HealthResponse;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import br.com.pvss.rinhabackend2025.model.HealthCache;
+import br.com.pvss.rinhabackend2025.model.HealthLock;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
+import org.springframework.data.mongodb.core.ReactiveMongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
 
 @Service
 public class HealthCheckService {
 
-    private static final Logger log = LoggerFactory.getLogger(HealthCheckService.class);
-    private static final String HEALTH_CHECK_KEY = "health:default:healthy";
-    private static final String LOCK_KEY = "health:lock";
-    private static final Duration HEALTH_CHECK_TIMEOUT = Duration.ofSeconds(1);
-    private static final Duration CACHE_DURATION = Duration.ofSeconds(4);
-    private static final Duration LOCK_TTL = Duration.ofSeconds(2);
+    private static final Duration LOCK_TTL = Duration.ofSeconds(5);
+    private static final Duration CACHE_TTL = Duration.ofSeconds(6);
+    private static final String DEFAULT_ID = "default";
 
-    private final WebClient defaultProcessorClient;
-    private final ReactiveStringRedisTemplate redis;
+    private final ReactiveMongoTemplate mongo;
+    private final WebClient ppDefault;
+    private final String hostId = System.getenv().getOrDefault("HOSTNAME", UUID.randomUUID().toString());
 
-    public HealthCheckService(
-            @Qualifier("defaultProcessorClient") WebClient defaultProcessorClient,
-            ReactiveStringRedisTemplate redis
-    ) {
-        this.defaultProcessorClient = defaultProcessorClient;
-        this.redis = redis;
+    public HealthCheckService(ReactiveMongoTemplate mongo,
+                              @Qualifier("defaultProcessorClient") WebClient ppDefault) {
+        this.mongo = mongo;
+        this.ppDefault = ppDefault;
     }
 
     public Mono<ProcessorType> getAvailableProcessor() {
-        return redis.opsForValue().get(HEALTH_CHECK_KEY)
-                .map("true"::equals)
-                .switchIfEmpty(tryAcquireLockAndCheckHealth())
-                .onErrorResume(e -> Mono.just(false))
-                .map(isHealthy -> isHealthy ? ProcessorType.DEFAULT : ProcessorType.FALLBACK);
+        return isDefaultHealthy()
+                .map(healthy -> healthy ? ProcessorType.DEFAULT : ProcessorType.FALLBACK);
     }
 
-    private Mono<Boolean> tryAcquireLockAndCheckHealth() {
-        return redis.opsForValue().setIfAbsent(LOCK_KEY, "1", LOCK_TTL)
-                .flatMap(locked -> {
-                    if (Boolean.TRUE.equals(locked)) {
-                        return performRemoteHealthCheck();
+    private Mono<Boolean> isDefaultHealthy() {
+        return mongo.findById(DEFAULT_ID, HealthCache.class)
+                .filter(c -> c.validUntil() != null && c.validUntil().isAfter(Instant.now()))
+                .map(HealthCache::healthy)
+                .switchIfEmpty(refreshDefaultHealth());
+    }
+
+    private Mono<Boolean> refreshDefaultHealth() {
+        Instant now = Instant.now();
+        Instant lease = now.plus(LOCK_TTL);
+
+        Query q = new Query(
+                Criteria.where("_id").is(DEFAULT_ID)
+                        .orOperator(
+                                Criteria.where("expiresAt").lt(now),
+                                Criteria.where("expiresAt").exists(false)
+                        )
+        );
+        Update u = new Update()
+                .set("expiresAt", lease)
+                .set("owner", hostId);
+
+        FindAndModifyOptions options = FindAndModifyOptions.options()
+                .upsert(true)
+                .returnNew(true);
+
+        return mongo.findAndModify(q, u, options, HealthLock.class)
+                .flatMap(lock -> {
+                    boolean iAmOwner = hostId.equals(lock.owner());
+                    if (!iAmOwner) {
+                        return Mono.delay(Duration.ofMillis(50))
+                                .then(mongo.findById(DEFAULT_ID, HealthCache.class))
+                                .map(c -> c != null && c.healthy())
+                                .defaultIfEmpty(false);
                     }
 
-                    return Mono.delay(Duration.ofMillis(50))
-                            .then(redis.opsForValue().get(HEALTH_CHECK_KEY))
-                            .map("true"::equals)
-                            .switchIfEmpty(Mono.just(false));
+                    return ppDefault.get()
+                            .uri("/health")
+                            .retrieve()
+                            .bodyToMono(HealthResponse.class)
+                            .timeout(Duration.ofMillis(500))
+                            .map(resp -> !resp.failing())
+                            .onErrorReturn(false)
+                            .flatMap(healthy ->
+                                    mongo.save(new HealthCache(DEFAULT_ID, healthy, Instant.now().plus(CACHE_TTL)))
+                                            .thenReturn(healthy)
+                            );
                 });
-    }
-
-    private Mono<Boolean> performRemoteHealthCheck() {
-        return defaultProcessorClient.get()
-                .uri("/payments/service-health")
-                .retrieve()
-                .bodyToMono(HealthResponse.class)
-                .timeout(HEALTH_CHECK_TIMEOUT)
-                .map(response -> !response.failing())
-                .publishOn(Schedulers.boundedElastic())
-                .doOnSuccess(healthy -> {
-                    log.info("Health check do Default atualizado para: {}", healthy ? "SAUDÁVEL" : "FALHANDO");
-                    redis.opsForValue().set(HEALTH_CHECK_KEY, String.valueOf(healthy), CACHE_DURATION).subscribe();
-                })
-                .onErrorResume(e -> {
-                    log.warn("Health check do Default falhou: {}. Considerando-o indisponível.", e.getMessage());
-                    return redis.opsForValue().set(HEALTH_CHECK_KEY, "false", CACHE_DURATION)
-                            .then(Mono.just(false));
-                })
-                .doFinally(signalType -> redis.opsForValue().delete(LOCK_KEY).subscribe());
     }
 }
