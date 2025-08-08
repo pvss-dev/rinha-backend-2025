@@ -4,7 +4,7 @@ services:
     environment:
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
       - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
-      - SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/rinha
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/rinha
     depends_on: [ mongodb ]
     networks:
       - backend
@@ -20,7 +20,7 @@ services:
     environment:
       - PAYMENT_PROCESSOR_DEFAULT_URL=http://payment-processor-default:8080
       - PAYMENT_PROCESSOR_FALLBACK_URL=http://payment-processor-fallback:8080
-      - SPRING_DATA_MONGODB_URI=mongodb://mongo:27017/rinha
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/rinha
     depends_on: [ mongodb ]
     networks:
       - backend
