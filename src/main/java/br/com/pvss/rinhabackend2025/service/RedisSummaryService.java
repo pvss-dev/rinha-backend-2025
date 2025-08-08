@@ -12,6 +12,7 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -45,31 +46,20 @@ public class RedisSummaryService {
         );
     }
 
-    public Mono<Boolean> isAlreadyProcessed(String correlationId) {
-        return redis.hasKey(CORRELATION_PREFIX + correlationId);
-    }
-
-    public Mono<Void> persistPaymentSummary(ProcessorType processor, BigDecimal amount, UUID correlationId) {
+    public Mono<Void> persistPaymentSummary(ProcessorType processor, BigDecimal amount, UUID correlationId, Instant requestedAt) {
         String processorKey = processor.name().toLowerCase();
         String correlationKey = CORRELATION_PREFIX + correlationId;
         String sortedSetKey = PAYMENT_SORTED_SET_PREFIX + processorKey;
 
-        double score = (double) System.currentTimeMillis();
+        double score = (double) requestedAt.toEpochMilli();
         String member = amount.toPlainString() + ":" + correlationId;
 
         List<String> keys = List.of(correlationKey, sortedSetKey);
-
         return redis.execute(this.persistScript, keys,
-                        String.valueOf(score),
-                        member,
+                        String.valueOf(score), member,
                         amount.toPlainString(),
                         String.valueOf(CORRELATION_TTL.toSeconds()))
-                .flatMap(result -> {
-                    if (result > 0) {
-                        log.debug("Summary persistido para {}: {}", processor, amount);
-                    }
-                    return Mono.empty();
-                }).then();
+                .then();
     }
 
     public Mono<Map<String, Object>> getSummary(String processor, LocalDateTime from, LocalDateTime to) {
