@@ -19,7 +19,12 @@ public class SummaryController {
     }
 
     @GetMapping("/payments-summary")
-    public Mono<SummaryResponse> getSummary(@RequestParam Instant from, @RequestParam Instant to) {
-        return summary.summary(from, to);
+    public Mono<SummaryResponse> getSummary(
+            @RequestParam(required = false)
+            Instant from,
+            @RequestParam(required = false)
+            Instant to
+    ) {
+        return summary.summaryNullable(from, to);
     }
 }

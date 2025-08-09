@@ -22,6 +22,7 @@ public class PaymentController {
         if (request == null || request.correlationId() == null || request.amount() == null) {
             return Mono.just(ResponseEntity.badRequest().build());
         }
-        return service.processPayment(request).thenReturn(ResponseEntity.accepted().build());
+        return service.processPayment(request)
+                .thenReturn(ResponseEntity.ok().build());
     }
 }

@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -22,7 +23,7 @@ import java.util.UUID;
 public class HealthCheckService {
 
     private static final Duration LOCK_TTL = Duration.ofSeconds(5);
-    private static final Duration CACHE_TTL = Duration.ofSeconds(6);
+    private static final Duration CACHE_TTL = Duration.ofSeconds(5);
     private static final String DEFAULT_ID = "default";
 
     private final ReactiveMongoTemplate mongo;
@@ -77,11 +78,17 @@ public class HealthCheckService {
                     }
 
                     return ppDefault.get()
-                            .uri("/health")
+                            .uri("/payments/service-health")
                             .retrieve()
                             .bodyToMono(HealthResponse.class)
                             .timeout(Duration.ofMillis(500))
                             .map(resp -> !resp.failing())
+                            .onErrorResume(WebClientResponseException.TooManyRequests.class, e -> {
+                                String ra = e.getHeaders().getFirst("Retry-After");
+                                Duration wait = (ra != null ? Duration.ofSeconds(Long.parseLong(ra)) : Duration.ofSeconds(5));
+                                return mongo.save(new HealthCache(DEFAULT_ID, false, Instant.now().plus(wait)))
+                                        .thenReturn(false);
+                            })
                             .onErrorReturn(false)
                             .flatMap(healthy ->
                                     mongo.save(new HealthCache(DEFAULT_ID, healthy, Instant.now().plus(CACHE_TTL)))

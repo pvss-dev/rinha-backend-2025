@@ -1,7 +1,9 @@
 package br.com.pvss.rinhabackend2025.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 public record SummaryResponse(
-        SummaryItem _default,
-        SummaryItem fallback
+        @JsonProperty("default") PaymentsSummaryResponse DEFAULT,
+        @JsonProperty("fallback") PaymentsSummaryResponse FALLBACK
 ) {
 }
