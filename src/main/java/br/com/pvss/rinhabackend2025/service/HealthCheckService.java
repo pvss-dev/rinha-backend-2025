@@ -5,6 +5,7 @@ import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import br.com.pvss.rinhabackend2025.model.HealthCache;
 import br.com.pvss.rinhabackend2025.model.HealthLock;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.ReactiveMongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -32,9 +34,11 @@ public class HealthCheckService {
     private final WebClient ppFallback;
     private final String hostId = System.getenv().getOrDefault("HOSTNAME", UUID.randomUUID().toString());
 
-    public HealthCheckService(ReactiveMongoTemplate mongo,
-                              @Qualifier("defaultProcessorClient") WebClient ppDefault,
-                              @Qualifier("fallbackProcessorClient") WebClient ppFallback) {
+    public HealthCheckService(
+            ReactiveMongoTemplate mongo,
+            @Qualifier("defaultProcessorClient") WebClient ppDefault,
+            @Qualifier("fallbackProcessorClient") WebClient ppFallback
+    ) {
         this.mongo = mongo;
         this.ppDefault = ppDefault;
         this.ppFallback = ppFallback;
@@ -57,6 +61,7 @@ public class HealthCheckService {
                 .map(HealthCache::healthy)
                 .switchIfEmpty(
                         lockAndRefreshHealth(processorId, client)
+                                .retryWhen(Retry.backoff(3, Duration.ofMillis(20)).filter(e -> e instanceof DuplicateKeyException))
                 );
     }
 
@@ -106,10 +111,6 @@ public class HealthCheckService {
                                     mongo.save(new HealthCache(processorId, healthy, Instant.now().plus(CACHE_TTL)))
                                             .thenReturn(healthy)
                             );
-                })
-                .onErrorResume(org.springframework.dao.DuplicateKeyException.class, e -> Mono.delay(Duration.ofMillis(50))
-                        .then(mongo.findById(processorId, HealthCache.class))
-                        .map(c -> c != null && c.healthy())
-                        .defaultIfEmpty(false));
+                });
     }
 }

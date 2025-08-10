@@ -20,7 +20,6 @@ public class PaymentService {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
-    private final IdempotencyService idempotency;
     private final MongoSummaryService summary;
     private final HealthCheckService health;
     private final PaymentProcessorClient client;
@@ -28,11 +27,11 @@ public class PaymentService {
     private static final Duration PRIMARY_TIMEOUT = Duration.ofMillis(650);
     private static final Duration FALLBACK_TIMEOUT = Duration.ofMillis(700);
 
-    public PaymentService(IdempotencyService idempotency,
-                          MongoSummaryService summary,
-                          HealthCheckService health,
-                          PaymentProcessorClient client) {
-        this.idempotency = idempotency;
+    public PaymentService(
+            MongoSummaryService summary,
+            HealthCheckService health,
+            PaymentProcessorClient client
+    ) {
         this.summary = summary;
         this.health = health;
         this.client = client;
@@ -40,27 +39,26 @@ public class PaymentService {
 
     public Mono<Void> processPayment(PaymentRequestDto request) {
         var normalizedAmount = request.amount().setScale(2, RoundingMode.HALF_UP);
-
         Instant requestedAt = Instant.now();
         var payload = new ProcessorPaymentRequest(
                 request.correlationId(), normalizedAmount, requestedAt
         );
 
-        return idempotency.acquire(request.correlationId(), requestedAt)
-                .flatMap(acquired -> {
-                    if (!acquired) {
+        return health.getAvailableProcessor()
+                .flatMap(processorType ->
+                        routeWithFallback(processorType, payload)
+                                .flatMap(usedProcessor ->
+                                        summary.persistPaymentSummary(usedProcessor, normalizedAmount,
+                                                        request.correlationId(), requestedAt)
+                                                .then(Mono.empty())
+                                )
+                )
+                .onErrorResume(e -> {
+                    if (e instanceof WebClientResponseException.UnprocessableEntity) {
                         return Mono.error(new DuplicatePaymentException());
                     }
-
-                    return health.getAvailableProcessor()
-                            .flatMap(processorType ->
-                                    routeWithFallback(processorType, payload)
-                                            .flatMap(usedProcessor ->
-                                                    summary.persistPaymentSummary(usedProcessor, normalizedAmount,
-                                                            request.correlationId(), requestedAt)
-                                            )
-                            );
-                });
+                    return Mono.error(e);
+                }).then();
     }
 
     private Mono<ProcessorType> routeWithFallback(ProcessorType primary, ProcessorPaymentRequest payload) {
@@ -72,8 +70,7 @@ public class PaymentService {
                         return Mono.error(err);
                     }
                     if (isConnectivityOrServer(err)) {
-                        log.warn("Primário {} falhou ({}). Tentando fallback {}.",
-                                primary, err.getClass().getSimpleName(), secondary);
+                        log.warn("Primário {} falhou ({}). Tentando fallback {}.", primary, err.getClass().getSimpleName(), secondary);
                         return attemptOnce(secondary, payload, FALLBACK_TIMEOUT)
                                 .onErrorResume(err2 -> {
                                     if (isDuplicate422(err2)) {
