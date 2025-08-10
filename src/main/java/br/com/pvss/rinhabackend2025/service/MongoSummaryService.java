@@ -31,8 +31,10 @@ public class MongoSummaryService {
 
     public MongoSummaryService(
             ReactiveMongoTemplate mongo,
-            @Value("${payment.processor.default.fee}") BigDecimal defaultFeePerTx,
-            @Value("${payment.processor.fallback.fee}") BigDecimal fallbackFeePerTx
+            @Value("${payment.processor.default.fee}")
+            BigDecimal defaultFeePerTx,
+            @Value("${payment.processor.fallback.fee}")
+            BigDecimal fallbackFeePerTx
     ) {
         this.mongo = mongo;
         this.defaultFeePerTx = defaultFeePerTx;
@@ -41,7 +43,6 @@ public class MongoSummaryService {
 
     public Mono<Void> persistPaymentSummary(ProcessorType p, BigDecimal amount, UUID corr, Instant requestedAt) {
         long cents = amount.movePointRight(2).longValueExact();
-
         Query q = new Query(Criteria.where("processor").is(p).and("correlationId").is(corr));
         Update u = new Update()
                 .setOnInsert("processor", p)
@@ -49,7 +50,8 @@ public class MongoSummaryService {
                 .setOnInsert("requestedAt", requestedAt)
                 .setOnInsert("amountCents", cents);
 
-        return mongo.upsert(q, u, PaymentEvent.class).then();
+        return mongo.upsert(q, u, PaymentEvent.class)
+                .then();
     }
 
     private PaymentsSummaryResponse toPaymentsSummary(Document doc) {

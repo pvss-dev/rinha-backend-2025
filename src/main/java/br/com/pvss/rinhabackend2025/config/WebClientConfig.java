@@ -29,7 +29,7 @@ public class WebClientConfig {
     private HttpClient httpClient(ConnectionProvider provider) {
         return HttpClient.create(provider)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 300)
-                .responseTimeout(Duration.ofMillis(1500));
+                .responseTimeout(Duration.ofMillis(1000));
     }
 
     @Bean

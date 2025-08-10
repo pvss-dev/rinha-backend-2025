@@ -74,7 +74,13 @@ public class PaymentService {
         return client.sendPayment(p, payload).timeout(timeout)
                 .flatMap(usedProcessor ->
                         summary.persistPaymentSummary(usedProcessor, payload.amount(), payload.correlationId(), payload.requestedAt())
-                );
+                )
+                .onErrorResume(e -> {
+                    if (e instanceof org.springframework.dao.DuplicateKeyException) {
+                        return Mono.empty();
+                    }
+                    return Mono.error(e);
+                });
     }
 
     private static boolean isDuplicate422(Throwable t) {
