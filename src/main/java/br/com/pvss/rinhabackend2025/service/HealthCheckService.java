@@ -25,35 +25,52 @@ public class HealthCheckService {
     private static final Duration LOCK_TTL = Duration.ofSeconds(5);
     private static final Duration CACHE_TTL = Duration.ofSeconds(5);
     private static final String DEFAULT_ID = "default";
+    private static final String FALLBACK_ID = "fallback";
 
     private final ReactiveMongoTemplate mongo;
     private final WebClient ppDefault;
+    private final WebClient ppFallback;
     private final String hostId = System.getenv().getOrDefault("HOSTNAME", UUID.randomUUID().toString());
 
     public HealthCheckService(ReactiveMongoTemplate mongo,
-                              @Qualifier("defaultProcessorClient") WebClient ppDefault) {
+                              @Qualifier("defaultProcessorClient") WebClient ppDefault,
+                              @Qualifier("fallbackProcessorClient") WebClient ppFallback) {
         this.mongo = mongo;
         this.ppDefault = ppDefault;
+        this.ppFallback = ppFallback;
     }
 
     public Mono<ProcessorType> getAvailableProcessor() {
         return isDefaultHealthy()
-                .map(healthy -> healthy ? ProcessorType.DEFAULT : ProcessorType.FALLBACK);
+                .flatMap(isDefaultHealthy -> {
+                    if (isDefaultHealthy) {
+                        return Mono.just(ProcessorType.DEFAULT);
+                    }
+                    return isFallbackHealthy().mapNotNull(isFallbackHealthy -> isFallbackHealthy ? ProcessorType.FALLBACK : null);
+                })
+                .defaultIfEmpty(ProcessorType.FALLBACK);
     }
 
     private Mono<Boolean> isDefaultHealthy() {
         return mongo.findById(DEFAULT_ID, HealthCache.class)
                 .filter(c -> c.validUntil() != null && c.validUntil().isAfter(Instant.now()))
                 .map(HealthCache::healthy)
-                .switchIfEmpty(refreshDefaultHealth());
+                .switchIfEmpty(refreshHealth(DEFAULT_ID, ppDefault));
     }
 
-    private Mono<Boolean> refreshDefaultHealth() {
+    private Mono<Boolean> isFallbackHealthy() {
+        return mongo.findById(FALLBACK_ID, HealthCache.class)
+                .filter(c -> c.validUntil() != null && c.validUntil().isAfter(Instant.now()))
+                .map(HealthCache::healthy)
+                .switchIfEmpty(refreshHealth(FALLBACK_ID, ppFallback));
+    }
+
+    private Mono<Boolean> refreshHealth(String processorId, WebClient client) {
         Instant now = Instant.now();
         Instant lease = now.plus(LOCK_TTL);
 
         Query q = new Query(
-                Criteria.where("_id").is(DEFAULT_ID)
+                Criteria.where("_id").is(processorId)
                         .orOperator(
                                 Criteria.where("expiresAt").lt(now),
                                 Criteria.where("expiresAt").exists(false)
@@ -72,12 +89,12 @@ public class HealthCheckService {
                     boolean iAmOwner = hostId.equals(lock.owner());
                     if (!iAmOwner) {
                         return Mono.delay(Duration.ofMillis(50))
-                                .then(mongo.findById(DEFAULT_ID, HealthCache.class))
+                                .then(mongo.findById(processorId, HealthCache.class))
                                 .map(c -> c != null && c.healthy())
                                 .defaultIfEmpty(false);
                     }
 
-                    return ppDefault.get()
+                    return client.get()
                             .uri("/payments/service-health")
                             .retrieve()
                             .bodyToMono(HealthResponse.class)
@@ -86,14 +103,18 @@ public class HealthCheckService {
                             .onErrorResume(WebClientResponseException.TooManyRequests.class, e -> {
                                 String ra = e.getHeaders().getFirst("Retry-After");
                                 Duration wait = (ra != null ? Duration.ofSeconds(Long.parseLong(ra)) : Duration.ofSeconds(5));
-                                return mongo.save(new HealthCache(DEFAULT_ID, false, Instant.now().plus(wait)))
+                                return mongo.save(new HealthCache(processorId, false, Instant.now().plus(wait)))
                                         .thenReturn(false);
                             })
                             .onErrorReturn(false)
                             .flatMap(healthy ->
-                                    mongo.save(new HealthCache(DEFAULT_ID, healthy, Instant.now().plus(CACHE_TTL)))
+                                    mongo.save(new HealthCache(processorId, healthy, Instant.now().plus(CACHE_TTL)))
                                             .thenReturn(healthy)
                             );
-                });
+                })
+                .onErrorResume(org.springframework.dao.DuplicateKeyException.class, e -> Mono.delay(Duration.ofMillis(50))
+                        .then(mongo.findById(processorId, HealthCache.class))
+                        .map(c -> c != null && c.healthy())
+                        .defaultIfEmpty(false));
     }
 }
