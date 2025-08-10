@@ -5,9 +5,6 @@ import br.com.pvss.rinhabackend2025.client.PaymentProcessorClient;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
-import br.com.pvss.rinhabackend2025.model.ReceivedRequest;
-import br.com.pvss.rinhabackend2025.repository.ReceivedRequestRepo;
-import com.mongodb.DuplicateKeyException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,7 +20,7 @@ public class PaymentService {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
-    private final ReceivedRequestRepo receivedRepo;
+    private final IdempotencyService idempotency;
     private final MongoSummaryService summary;
     private final HealthCheckService health;
     private final PaymentProcessorClient client;
@@ -31,11 +28,11 @@ public class PaymentService {
     private static final Duration PRIMARY_TIMEOUT = Duration.ofMillis(650);
     private static final Duration FALLBACK_TIMEOUT = Duration.ofMillis(700);
 
-    public PaymentService(ReceivedRequestRepo receivedRepo,
+    public PaymentService(IdempotencyService idempotency,
                           MongoSummaryService summary,
                           HealthCheckService health,
                           PaymentProcessorClient client) {
-        this.receivedRepo = receivedRepo;
+        this.idempotency = idempotency;
         this.summary = summary;
         this.health = health;
         this.client = client;
@@ -49,15 +46,17 @@ public class PaymentService {
                 request.correlationId(), normalizedAmount, requestedAt
         );
 
-        var rec = new ReceivedRequest(request.correlationId(), requestedAt);
+        return idempotency.acquire(request.correlationId(), requestedAt)
+                .flatMap(acquired -> {
+                    if (!acquired) return Mono.error(new DuplicatePaymentException());
 
-        return receivedRepo.save(rec)
-                .onErrorResume(DuplicateKeyException.class, e -> Mono.error(new DuplicatePaymentException()))
-                .then(health.getAvailableProcessor())
-                .flatMap(primary -> routeWithFallback(primary, payload))
-                .flatMap(used ->
-                        summary.persistPaymentSummary(used, normalizedAmount, request.correlationId(), requestedAt)
-                );
+                    return health.getAvailableProcessor()
+                            .flatMap(primary -> routeWithFallback(primary, payload))
+                            .flatMap(used ->
+                                    summary.persistPaymentSummary(used, normalizedAmount,
+                                            request.correlationId(), requestedAt)
+                            );
+                });
     }
 
     private Mono<ProcessorType> routeWithFallback(ProcessorType primary, ProcessorPaymentRequest payload) {
@@ -67,7 +66,8 @@ public class PaymentService {
                 .onErrorResume(err -> {
                     if (isDuplicate422(err)) return Mono.error(err);
                     if (isConnectivityOrServer(err)) {
-                        log.warn("Primário {} falhou ({}). Tentando fallback {}.", primary, err.getClass().getSimpleName(), secondary);
+                        log.warn("Primário {} falhou ({}). Tentando fallback {}.",
+                                primary, err.getClass().getSimpleName(), secondary);
                         return attemptOnce(secondary, payload, FALLBACK_TIMEOUT);
                     }
                     return Mono.error(err);

@@ -2,6 +2,7 @@ package br.com.pvss.rinhabackend2025.controller;
 
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import br.com.pvss.rinhabackend2025.service.PaymentService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,10 +19,7 @@ public class PaymentController {
     }
 
     @PostMapping("/payments")
-    public Mono<ResponseEntity<Void>> createPayment(@RequestBody PaymentRequestDto request) {
-        if (request == null || request.correlationId() == null || request.amount() == null) {
-            return Mono.just(ResponseEntity.badRequest().build());
-        }
+    public Mono<ResponseEntity<Void>> createPayment(@Valid @RequestBody PaymentRequestDto request) {
         return service.processPayment(request)
                 .thenReturn(ResponseEntity.ok().build());
     }
