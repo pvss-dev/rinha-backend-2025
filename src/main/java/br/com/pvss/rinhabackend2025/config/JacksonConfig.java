@@ -1,16 +1,15 @@
 package br.com.pvss.rinhabackend2025.config;
 
-import br.com.pvss.rinhabackend2025.dto.HealthResponse;
-import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
-import br.com.pvss.rinhabackend2025.dto.SummaryItem;
-import br.com.pvss.rinhabackend2025.dto.SummaryResponse;
+import br.com.pvss.rinhabackend2025.dto.*;
 import org.springframework.aot.hint.annotation.RegisterReflectionForBinding;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @RegisterReflectionForBinding({
-        ProcessorPaymentRequest.class,
         HealthResponse.class,
+        PaymentRequestDto.class,
+        PaymentsSummaryResponse.class,
+        ProcessorPaymentRequest.class,
         SummaryItem.class,
         SummaryResponse.class
 })
