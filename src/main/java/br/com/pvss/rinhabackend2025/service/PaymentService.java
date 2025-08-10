@@ -1,10 +1,10 @@
 package br.com.pvss.rinhabackend2025.service;
 
-import br.com.pvss.rinhabackend2025.exception.DuplicatePaymentException;
 import br.com.pvss.rinhabackend2025.client.PaymentProcessorClient;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
+import br.com.pvss.rinhabackend2025.exception.DuplicatePaymentException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -24,14 +24,12 @@ public class PaymentService {
     private final HealthCheckService health;
     private final PaymentProcessorClient client;
 
-    private static final Duration PRIMARY_TIMEOUT = Duration.ofMillis(650);
-    private static final Duration FALLBACK_TIMEOUT = Duration.ofMillis(700);
+    private static final Duration PRIMARY_TIMEOUT = Duration.ofMillis(300);
+    private static final Duration FALLBACK_TIMEOUT = Duration.ofMillis(350);
 
-    public PaymentService(
-            MongoSummaryService summary,
-            HealthCheckService health,
-            PaymentProcessorClient client
-    ) {
+    public PaymentService(MongoSummaryService summary,
+                          HealthCheckService health,
+                          PaymentProcessorClient client) {
         this.summary = summary;
         this.health = health;
         this.client = client;
@@ -40,41 +38,29 @@ public class PaymentService {
     public Mono<Void> processPayment(PaymentRequestDto request) {
         var normalizedAmount = request.amount().setScale(2, RoundingMode.HALF_UP);
         Instant requestedAt = Instant.now();
-        var payload = new ProcessorPaymentRequest(
-                request.correlationId(), normalizedAmount, requestedAt
-        );
+        var payload = new ProcessorPaymentRequest(request.correlationId(), normalizedAmount, requestedAt);
 
         return health.getAvailableProcessor()
                 .flatMap(processorType ->
-                        routeWithFallback(processorType, payload)
-                                .flatMap(usedProcessor ->
-                                        summary.persistPaymentSummary(usedProcessor, normalizedAmount,
-                                                        request.correlationId(), requestedAt)
-                                                .then(Mono.empty())
-                                )
+                        routeAndPersist(processorType, payload)
                 )
-                .onErrorResume(e -> {
-                    if (e instanceof WebClientResponseException.UnprocessableEntity) {
-                        return Mono.error(new DuplicatePaymentException());
-                    }
-                    return Mono.error(e);
-                }).then();
+                .then();
     }
 
-    private Mono<ProcessorType> routeWithFallback(ProcessorType primary, ProcessorPaymentRequest payload) {
+    private Mono<Void> routeAndPersist(ProcessorType primary, ProcessorPaymentRequest payload) {
         ProcessorType secondary = (primary == ProcessorType.DEFAULT) ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
 
-        return attemptOnce(primary, payload, PRIMARY_TIMEOUT)
+        return attemptAndPersist(primary, payload, PRIMARY_TIMEOUT)
                 .onErrorResume(err -> {
                     if (isDuplicate422(err)) {
-                        return Mono.error(err);
+                        return Mono.error(new DuplicatePaymentException());
                     }
                     if (isConnectivityOrServer(err)) {
                         log.warn("Primário {} falhou ({}). Tentando fallback {}.", primary, err.getClass().getSimpleName(), secondary);
-                        return attemptOnce(secondary, payload, FALLBACK_TIMEOUT)
+                        return attemptAndPersist(secondary, payload, FALLBACK_TIMEOUT)
                                 .onErrorResume(err2 -> {
                                     if (isDuplicate422(err2)) {
-                                        return Mono.error(err2);
+                                        return Mono.error(new DuplicatePaymentException());
                                     }
                                     log.error("Fallback {} falhou ({}).", secondary, err2.getClass().getSimpleName());
                                     return Mono.error(err2);
@@ -84,8 +70,11 @@ public class PaymentService {
                 });
     }
 
-    private Mono<ProcessorType> attemptOnce(ProcessorType p, ProcessorPaymentRequest payload, Duration timeout) {
-        return client.sendPayment(p, payload).timeout(timeout);
+    private Mono<Void> attemptAndPersist(ProcessorType p, ProcessorPaymentRequest payload, Duration timeout) {
+        return client.sendPayment(p, payload).timeout(timeout)
+                .flatMap(usedProcessor ->
+                        summary.persistPaymentSummary(usedProcessor, payload.amount(), payload.correlationId(), payload.requestedAt())
+                );
     }
 
     private static boolean isDuplicate422(Throwable t) {

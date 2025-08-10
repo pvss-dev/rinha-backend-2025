@@ -17,7 +17,7 @@ import java.time.Duration;
 @EnableConfigurationProperties(ProcessorPoolProperties.class)
 public class WebClientConfig {
 
-    @Bean
+    @Bean(destroyMethod = "dispose")
     public ConnectionProvider processorConnectionProvider(ProcessorPoolProperties props) {
         return ConnectionProvider.builder("pp")
                 .maxConnections(props.getMaxConnections())
