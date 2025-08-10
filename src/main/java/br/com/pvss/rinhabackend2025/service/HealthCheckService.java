@@ -41,31 +41,26 @@ public class HealthCheckService {
     }
 
     public Mono<ProcessorType> getAvailableProcessor() {
-        return isDefaultHealthy()
+        return getProcessorHealth(DEFAULT_ID, ppDefault)
                 .flatMap(isDefaultHealthy -> {
                     if (isDefaultHealthy) {
                         return Mono.just(ProcessorType.DEFAULT);
                     }
-                    return isFallbackHealthy().mapNotNull(isFallbackHealthy -> isFallbackHealthy ? ProcessorType.FALLBACK : null);
+                    return getProcessorHealth(FALLBACK_ID, ppFallback).mapNotNull(isFallbackHealthy -> isFallbackHealthy ? ProcessorType.FALLBACK : null);
                 })
                 .defaultIfEmpty(ProcessorType.FALLBACK);
     }
 
-    private Mono<Boolean> isDefaultHealthy() {
-        return mongo.findById(DEFAULT_ID, HealthCache.class)
+    private Mono<Boolean> getProcessorHealth(String processorId, WebClient client) {
+        return mongo.findById(processorId, HealthCache.class)
                 .filter(c -> c.validUntil() != null && c.validUntil().isAfter(Instant.now()))
                 .map(HealthCache::healthy)
-                .switchIfEmpty(refreshHealth(DEFAULT_ID, ppDefault));
+                .switchIfEmpty(
+                        lockAndRefreshHealth(processorId, client)
+                );
     }
 
-    private Mono<Boolean> isFallbackHealthy() {
-        return mongo.findById(FALLBACK_ID, HealthCache.class)
-                .filter(c -> c.validUntil() != null && c.validUntil().isAfter(Instant.now()))
-                .map(HealthCache::healthy)
-                .switchIfEmpty(refreshHealth(FALLBACK_ID, ppFallback));
-    }
-
-    private Mono<Boolean> refreshHealth(String processorId, WebClient client) {
+    private Mono<Boolean> lockAndRefreshHealth(String processorId, WebClient client) {
         Instant now = Instant.now();
         Instant lease = now.plus(LOCK_TTL);
 

@@ -48,13 +48,17 @@ public class PaymentService {
 
         return idempotency.acquire(request.correlationId(), requestedAt)
                 .flatMap(acquired -> {
-                    if (!acquired) return Mono.error(new DuplicatePaymentException());
+                    if (!acquired) {
+                        return Mono.error(new DuplicatePaymentException());
+                    }
 
                     return health.getAvailableProcessor()
-                            .flatMap(primary -> routeWithFallback(primary, payload))
-                            .flatMap(used ->
-                                    summary.persistPaymentSummary(used, normalizedAmount,
-                                            request.correlationId(), requestedAt)
+                            .flatMap(processorType ->
+                                    routeWithFallback(processorType, payload)
+                                            .flatMap(usedProcessor ->
+                                                    summary.persistPaymentSummary(usedProcessor, normalizedAmount,
+                                                            request.correlationId(), requestedAt)
+                                            )
                             );
                 });
     }
@@ -64,11 +68,20 @@ public class PaymentService {
 
         return attemptOnce(primary, payload, PRIMARY_TIMEOUT)
                 .onErrorResume(err -> {
-                    if (isDuplicate422(err)) return Mono.error(err);
+                    if (isDuplicate422(err)) {
+                        return Mono.error(err);
+                    }
                     if (isConnectivityOrServer(err)) {
                         log.warn("Primário {} falhou ({}). Tentando fallback {}.",
                                 primary, err.getClass().getSimpleName(), secondary);
-                        return attemptOnce(secondary, payload, FALLBACK_TIMEOUT);
+                        return attemptOnce(secondary, payload, FALLBACK_TIMEOUT)
+                                .onErrorResume(err2 -> {
+                                    if (isDuplicate422(err2)) {
+                                        return Mono.error(err2);
+                                    }
+                                    log.error("Fallback {} falhou ({}).", secondary, err2.getClass().getSimpleName());
+                                    return Mono.error(err2);
+                                });
                     }
                     return Mono.error(err);
                 });
