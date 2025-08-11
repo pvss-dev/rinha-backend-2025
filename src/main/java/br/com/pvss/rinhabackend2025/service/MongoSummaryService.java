@@ -18,7 +18,6 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
 @Service
 public class MongoSummaryService {
 
@@ -35,26 +34,16 @@ public class MongoSummaryService {
     }
 
     private PaymentsSummaryResponse toPaymentsSummary(Document doc) {
-
         long reqs = getNumberAsLong(doc, "totalRequests");
         long amountCents = getNumberAsLong(doc, "totalAmountCents");
-
         BigDecimal totalAmount = BigDecimal.valueOf(amountCents).movePointLeft(2);
-
         int totalRequests = Math.toIntExact(reqs);
-
-        return new PaymentsSummaryResponse(totalAmount, totalRequests, null, null);
+        return new PaymentsSummaryResponse(totalAmount, totalRequests);
     }
 
     private SummaryResponse toResponseWithDefaults(Map<ProcessorType, PaymentsSummaryResponse> map) {
-        PaymentsSummaryResponse def = map.getOrDefault(
-                ProcessorType.DEFAULT,
-                new PaymentsSummaryResponse(BigDecimal.ZERO, 0, null, null)
-        );
-        PaymentsSummaryResponse fb = map.getOrDefault(
-                ProcessorType.FALLBACK,
-                new PaymentsSummaryResponse(BigDecimal.ZERO, 0, null, null)
-        );
+        PaymentsSummaryResponse def = map.getOrDefault(ProcessorType.DEFAULT, new PaymentsSummaryResponse(BigDecimal.ZERO, 0));
+        PaymentsSummaryResponse fb = map.getOrDefault(ProcessorType.FALLBACK, new PaymentsSummaryResponse(BigDecimal.ZERO, 0));
         return new SummaryResponse(def, fb);
     }
 

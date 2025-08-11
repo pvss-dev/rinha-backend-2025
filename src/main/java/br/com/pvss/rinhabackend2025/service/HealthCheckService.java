@@ -23,51 +23,57 @@ public class HealthCheckService {
     private final Map<ProcessorType, HealthState> healthCache = new ConcurrentHashMap<>();
     private final ExecutorService healthCheckExecutor = Executors.newFixedThreadPool(2);
 
+    private record HealthState(boolean healthy, int minResponseTime, long timestamp) {
+    }
+
     public HealthCheckService(PaymentProcessorClient client) {
         this.client = client;
-        healthCache.put(ProcessorType.DEFAULT, new HealthState(true, 0));
-        healthCache.put(ProcessorType.FALLBACK, new HealthState(true, 0));
+        long now = System.currentTimeMillis();
+        healthCache.put(ProcessorType.DEFAULT, new HealthState(false, Integer.MAX_VALUE, now));
+        healthCache.put(ProcessorType.FALLBACK, new HealthState(false, Integer.MAX_VALUE, now));
     }
 
     @Scheduled(fixedRate = 5000)
     public void performHealthCheck() {
         long now = System.currentTimeMillis();
 
-        Future<HealthResponse> defaultFuture = healthCheckExecutor.submit(() -> client.checkHealth(ProcessorType.DEFAULT));
-        Future<HealthResponse> fallbackFuture = healthCheckExecutor.submit(() -> client.checkHealth(ProcessorType.FALLBACK));
+        Future<HealthResponse> df = healthCheckExecutor.submit(() -> client.checkHealth(ProcessorType.DEFAULT));
+        Future<HealthResponse> ff = healthCheckExecutor.submit(() -> client.checkHealth(ProcessorType.FALLBACK));
 
         try {
-            HealthResponse defaultHealth = defaultFuture.get();
-            healthCache.put(ProcessorType.DEFAULT, new HealthState(!defaultHealth.failing(), now));
+            HealthResponse dh = df.get();
+            healthCache.put(ProcessorType.DEFAULT, new HealthState(!dh.failing(), dh.minResponseTime(), now));
         } catch (Exception e) {
-            log.warn("Health check falhou para o processador DEFAULT. Considerando DOWN.");
-            healthCache.put(ProcessorType.DEFAULT, new HealthState(false, now));
+            log.warn("Health check falhou para DEFAULT. Considerando DOWN.", e);
+            healthCache.put(ProcessorType.DEFAULT, new HealthState(false, Integer.MAX_VALUE, now));
         }
 
         try {
-            HealthResponse fallbackHealth = fallbackFuture.get();
-            healthCache.put(ProcessorType.FALLBACK, new HealthState(!fallbackHealth.failing(), now));
+            HealthResponse fh = ff.get();
+            healthCache.put(ProcessorType.FALLBACK, new HealthState(!fh.failing(), fh.minResponseTime(), now));
         } catch (Exception e) {
-            log.warn("Health check falhou para o processador FALLBACK. Considerando DOWN.");
-            healthCache.put(ProcessorType.FALLBACK, new HealthState(false, now));
+            log.warn("Health check falhou para FALLBACK. Considerando DOWN.", e);
+            healthCache.put(ProcessorType.FALLBACK, new HealthState(false, Integer.MAX_VALUE, now));
         }
     }
 
     public ProcessorType getAvailableProcessor() {
-        if (healthCache.getOrDefault(ProcessorType.DEFAULT, new HealthState(false, 0)).isHealthy()) {
-            return ProcessorType.DEFAULT;
+        HealthState d = healthCache.get(ProcessorType.DEFAULT);
+        HealthState f = healthCache.get(ProcessorType.FALLBACK);
+
+        boolean dOk = d != null && d.healthy;
+        boolean fOk = f != null && f.healthy;
+
+        if (dOk && fOk) {
+            return d.minResponseTime <= f.minResponseTime ? ProcessorType.DEFAULT : ProcessorType.FALLBACK;
         }
-        if (healthCache.getOrDefault(ProcessorType.FALLBACK, new HealthState(false, 0)).isHealthy()) {
-            return ProcessorType.FALLBACK;
-        }
+        if (dOk) return ProcessorType.DEFAULT;
+        if (fOk) return ProcessorType.FALLBACK;
         return null;
     }
 
     @PreDestroy
     public void shutdown() {
         healthCheckExecutor.shutdown();
-    }
-
-    private record HealthState(boolean isHealthy, long timestamp) {
     }
 }

@@ -19,7 +19,9 @@ public class PaymentController {
 
     @PostMapping("/payments")
     public ResponseEntity<Void> createPayment(@Valid @RequestBody PaymentRequestDto request) {
-        service.addPaymentToQueue(request);
+        if (!service.enqueue(request)) {
+            return ResponseEntity.status(429).build();
+        }
         return ResponseEntity.accepted().build();
     }
 }

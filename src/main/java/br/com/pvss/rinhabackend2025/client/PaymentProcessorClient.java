@@ -3,7 +3,7 @@ package br.com.pvss.rinhabackend2025.client;
 import br.com.pvss.rinhabackend2025.dto.HealthResponse;
 import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import br.com.pvss.rinhabackend2025.dto.SendResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -36,22 +36,25 @@ public class PaymentProcessorClient {
         this.fallbackUrl = fallbackUrl;
     }
 
-    public boolean sendPayment(ProcessorType type, ProcessorPaymentRequest payload) throws JsonProcessingException {
-        String url = (type == ProcessorType.DEFAULT) ? defaultUrl : fallbackUrl;
-        String jsonPayload = objectMapper.writeValueAsString(payload);
-
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .timeout(PAYMENT_TIMEOUT)
-                .uri(URI.create(url + "/payments"))
-                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .build();
-
+    public SendResult sendPayment(ProcessorType type, ProcessorPaymentRequest payload) {
         try {
+            final String url = (type == ProcessorType.DEFAULT) ? defaultUrl : fallbackUrl;
+            final String json = objectMapper.writeValueAsString(payload);
+
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .timeout(PAYMENT_TIMEOUT)
+                    .uri(URI.create(url + "/payments"))
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .build();
+
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            return response.statusCode() >= 200 && response.statusCode() < 300;
+            int sc = response.statusCode();
+            if (sc >= 200 && sc < 300) return SendResult.SUCCESS;
+            if (sc == 422) return SendResult.DUPLICATE;
+            return SendResult.RETRIABLE_FAILURE;
         } catch (Exception e) {
-            return false;
+            return SendResult.RETRIABLE_FAILURE;
         }
     }
 
@@ -70,7 +73,6 @@ public class PaymentProcessorClient {
             }
         } catch (Exception ignored) {
         }
-
         return new HealthResponse(true, Integer.MAX_VALUE);
     }
 }

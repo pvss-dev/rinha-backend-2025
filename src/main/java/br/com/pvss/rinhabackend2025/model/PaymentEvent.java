@@ -11,7 +11,7 @@ import java.util.UUID;
 @Document("payment_events")
 @CompoundIndexes({
         @CompoundIndex(name = "idx_proc_time", def = "{'processor':1,'requestedAt':1}"),
-        @CompoundIndex(name = "uk_proc_corr", def = "{'processor':1,'correlationId':1}", unique = true)
+        @CompoundIndex(name = "uk_corr", def = "{'correlationId':1}", unique = true)
 })
 public record PaymentEvent(
         UUID correlationId,
