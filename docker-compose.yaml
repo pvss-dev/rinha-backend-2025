@@ -1,6 +1,6 @@
 services:
   mongodb:
-    image: mongo:7.0-jammy
+    image: mongo:7.0
     healthcheck:
       test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 5s
