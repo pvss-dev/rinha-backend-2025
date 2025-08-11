@@ -1,8 +1,16 @@
 services:
   mongodb:
     image: mongo:7.0
+    command: [
+      "mongod",
+      "--bind_ip_all",
+      "--wiredTigerCacheSizeGB=0.05",
+      "--nojournal",
+      "--quiet",
+      "--setParameter"
+    ]
     healthcheck:
-      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
+      test: [ "CMD", "mongosh", "--eval", "--quiet", "db.adminCommand('ping')" ]
       interval: 5s
       timeout: 3s
       retries: 5
