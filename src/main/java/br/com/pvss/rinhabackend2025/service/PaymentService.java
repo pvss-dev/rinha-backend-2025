@@ -58,7 +58,10 @@
         private void processPayment(ProcessorPaymentRequest payload) {
             ProcessorType first = healthCheckService.getAvailableProcessor();
             if (first == null) {
-                paymentQueue.offer(payload);
+                boolean requeued = paymentQueue.offer(payload);
+                if (!requeued) {
+                    log.warn("Re-enqueue falhou (fila cheia). Descartando pagamento {}", payload.correlationId());
+                }
                 return;
             }
             ProcessorType second = (first == ProcessorType.DEFAULT) ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
