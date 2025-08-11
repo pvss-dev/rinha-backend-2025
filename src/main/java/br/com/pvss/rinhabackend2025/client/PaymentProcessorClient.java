@@ -1,5 +1,6 @@
 package br.com.pvss.rinhabackend2025.client;
 
+import br.com.pvss.rinhabackend2025.dto.HealthResponse;
 import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -22,6 +23,8 @@ public class PaymentProcessorClient {
     private final ObjectMapper objectMapper;
     private final String defaultUrl;
     private final String fallbackUrl;
+    private static final Duration PAYMENT_TIMEOUT = Duration.ofMillis(1000);
+    private static final Duration HEALTH_TIMEOUT = Duration.ofSeconds(1);
 
     public PaymentProcessorClient(HttpClient httpClient,
                                   ObjectMapper objectMapper,
@@ -38,7 +41,7 @@ public class PaymentProcessorClient {
         String jsonPayload = objectMapper.writeValueAsString(payload);
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
-                .timeout(Duration.ofMillis(300))
+                .timeout(PAYMENT_TIMEOUT)
                 .uri(URI.create(url + "/payments"))
                 .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -50,5 +53,24 @@ public class PaymentProcessorClient {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    public HealthResponse checkHealth(ProcessorType type) {
+        String url = (type == ProcessorType.DEFAULT) ? defaultUrl : fallbackUrl;
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .timeout(HEALTH_TIMEOUT)
+                .uri(URI.create(url + "/payments/service-health"))
+                .GET()
+                .build();
+
+        try {
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                return objectMapper.readValue(response.body(), HealthResponse.class);
+            }
+        } catch (Exception ignored) {
+        }
+
+        return new HealthResponse(true, Integer.MAX_VALUE);
     }
 }

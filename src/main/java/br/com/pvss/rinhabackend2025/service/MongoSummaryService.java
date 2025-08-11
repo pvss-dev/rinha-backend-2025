@@ -6,7 +6,6 @@ import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import br.com.pvss.rinhabackend2025.dto.SummaryResponse;
 import br.com.pvss.rinhabackend2025.model.PaymentEvent;
 import org.bson.Document;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
@@ -14,29 +13,19 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+
 @Service
 public class MongoSummaryService {
 
     private final MongoTemplate mongo;
-    private final BigDecimal defaultFeePerTx;
-    private final BigDecimal fallbackFeePerTx;
 
-    public MongoSummaryService(
-            MongoTemplate mongo,
-            @Value("${payment.processor.default.fee}")
-            BigDecimal defaultFeePerTx,
-            @Value("${payment.processor.fallback.fee}")
-            BigDecimal fallbackFeePerTx
-    ) {
+    public MongoSummaryService(MongoTemplate mongo) {
         this.mongo = mongo;
-        this.defaultFeePerTx = defaultFeePerTx;
-        this.fallbackFeePerTx = fallbackFeePerTx;
     }
 
     public void persistPayment(ProcessorType p, ProcessorPaymentRequest payload) {
@@ -46,30 +35,25 @@ public class MongoSummaryService {
     }
 
     private PaymentsSummaryResponse toPaymentsSummary(Document doc) {
-        ProcessorType processor = ProcessorType.valueOf(doc.getString("_id"));
 
         long reqs = getNumberAsLong(doc, "totalRequests");
         long amountCents = getNumberAsLong(doc, "totalAmountCents");
 
         BigDecimal totalAmount = BigDecimal.valueOf(amountCents).movePointLeft(2);
-        BigDecimal feePerTx = (processor == ProcessorType.DEFAULT ? defaultFeePerTx : fallbackFeePerTx);
-        BigDecimal totalFee = totalAmount.multiply(feePerTx).setScale(2, RoundingMode.HALF_UP);
 
         int totalRequests = Math.toIntExact(reqs);
 
-        return new PaymentsSummaryResponse(totalAmount, totalRequests, totalFee, feePerTx);
+        return new PaymentsSummaryResponse(totalAmount, totalRequests, null, null);
     }
 
     private SummaryResponse toResponseWithDefaults(Map<ProcessorType, PaymentsSummaryResponse> map) {
         PaymentsSummaryResponse def = map.getOrDefault(
                 ProcessorType.DEFAULT,
-                new PaymentsSummaryResponse(BigDecimal.ZERO, 0,
-                        BigDecimal.ZERO, defaultFeePerTx)
+                new PaymentsSummaryResponse(BigDecimal.ZERO, 0, null, null)
         );
         PaymentsSummaryResponse fb = map.getOrDefault(
                 ProcessorType.FALLBACK,
-                new PaymentsSummaryResponse(BigDecimal.ZERO, 0,
-                        BigDecimal.ZERO, fallbackFeePerTx)
+                new PaymentsSummaryResponse(BigDecimal.ZERO, 0, null, null)
         );
         return new SummaryResponse(def, fb);
     }

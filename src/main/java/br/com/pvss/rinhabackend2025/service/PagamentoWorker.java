@@ -6,8 +6,6 @@ import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-
 @Component
 public class PagamentoWorker {
 

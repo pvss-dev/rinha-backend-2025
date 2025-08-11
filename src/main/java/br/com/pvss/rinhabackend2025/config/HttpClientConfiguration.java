@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.concurrent.Executors;
 
 @Configuration
 public class HttpClientConfiguration {
@@ -12,10 +13,10 @@ public class HttpClientConfiguration {
     @Bean
     public HttpClient httpClient() {
         return HttpClient.newBuilder()
-                .followRedirects(java.net.http.HttpClient.Redirect.NEVER)
-                .version(java.net.http.HttpClient.Version.HTTP_1_1)
-                .executor(Runnable::run)
-                .connectTimeout(Duration.ofMillis(60))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .version(HttpClient.Version.HTTP_1_1)
+                .executor(Executors.newVirtualThreadPerTaskExecutor())
+                .connectTimeout(Duration.ofMillis(1000))
                 .build();
     }
 }
