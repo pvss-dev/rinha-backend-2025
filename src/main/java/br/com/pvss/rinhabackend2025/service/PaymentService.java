@@ -4,95 +4,91 @@ import br.com.pvss.rinhabackend2025.client.PaymentProcessorClient;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequestDto;
 import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
-import br.com.pvss.rinhabackend2025.exception.DuplicatePaymentException;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.core.publisher.Mono;
 
 import java.math.RoundingMode;
-import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 @Service
-public class PaymentService {
+public class PaymentService implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
-
-    private final MongoSummaryService summary;
-    private final HealthCheckService health;
+    private final BlockingQueue<ProcessorPaymentRequest> paymentQueue = new LinkedBlockingQueue<>();
     private final PaymentProcessorClient client;
+    private final MongoSummaryService summary;
+    private final int workerThreads;
 
-    private static final Duration PRIMARY_TIMEOUT = Duration.ofMillis(300);
-    private static final Duration FALLBACK_TIMEOUT = Duration.ofMillis(350);
-
-    public PaymentService(MongoSummaryService summary,
-                          HealthCheckService health,
-                          PaymentProcessorClient client) {
-        this.summary = summary;
-        this.health = health;
+    public PaymentService(
+            PaymentProcessorClient client,
+            MongoSummaryService summary,
+            @Value("${worker.threads:20}") int workerThreads) {
         this.client = client;
+        this.summary = summary;
+        this.workerThreads = workerThreads;
     }
 
-    public Mono<Void> processPayment(PaymentRequestDto request) {
+    public void addPaymentToQueue(PaymentRequestDto request) {
         var normalizedAmount = request.amount().setScale(2, RoundingMode.HALF_UP);
         Instant requestedAt = Instant.now();
         var payload = new ProcessorPaymentRequest(request.correlationId(), normalizedAmount, requestedAt);
-
-        return health.getAvailableProcessor()
-                .flatMap(processorType ->
-                        routeAndPersist(processorType, payload)
-                )
-                .then();
+        paymentQueue.offer(payload);
     }
 
-    private Mono<Void> routeAndPersist(ProcessorType primary, ProcessorPaymentRequest payload) {
-        ProcessorType secondary = (primary == ProcessorType.DEFAULT) ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
-
-        return attemptAndPersist(primary, payload, PRIMARY_TIMEOUT)
-                .onErrorResume(err -> {
-                    if (isDuplicate422(err)) {
-                        return Mono.error(new DuplicatePaymentException());
-                    }
-                    if (isConnectivityOrServer(err)) {
-                        log.warn("Primário {} falhou ({}). Tentando fallback {}.", primary, err.getClass().getSimpleName(), secondary);
-                        return attemptAndPersist(secondary, payload, FALLBACK_TIMEOUT)
-                                .onErrorResume(err2 -> {
-                                    if (isDuplicate422(err2)) {
-                                        return Mono.error(new DuplicatePaymentException());
-                                    }
-                                    log.error("Fallback {} falhou ({}).", secondary, err2.getClass().getSimpleName());
-                                    return Mono.error(err2);
-                                });
-                    }
-                    return Mono.error(err);
-                });
-    }
-
-    private Mono<Void> attemptAndPersist(ProcessorType p, ProcessorPaymentRequest payload, Duration timeout) {
-        return client.sendPayment(p, payload).timeout(timeout)
-                .flatMap(usedProcessor ->
-                        summary.persistPaymentSummary(usedProcessor, payload.amount(), payload.correlationId(), payload.requestedAt())
-                )
-                .onErrorResume(e -> {
-                    if (e instanceof org.springframework.dao.DuplicateKeyException) {
-                        return Mono.empty();
-                    }
-                    return Mono.error(e);
-                });
-    }
-
-    private static boolean isDuplicate422(Throwable t) {
-        return (t instanceof WebClientResponseException w) && w.getStatusCode().value() == 422;
-    }
-
-    private static boolean isConnectivityOrServer(Throwable t) {
-        if (t instanceof java.util.concurrent.TimeoutException) return true;
-        if (t instanceof WebClientResponseException w) {
-            int s = w.getStatusCode().value();
-            return s == 429 || (s >= 500 && s <= 599);
+    private void runWorker() {
+        while (true) {
+            try {
+                ProcessorPaymentRequest request = paymentQueue.take();
+                processPayment(request);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Worker thread interrupted", e);
+                return;
+            }
         }
-        return true;
+    }
+
+    private void processPayment(ProcessorPaymentRequest payload) {
+        boolean success = false;
+        for (int i = 0; i < 15; i++) {
+            try {
+                if (client.sendPayment(ProcessorType.DEFAULT, payload)) {
+                    summary.persistPayment(ProcessorType.DEFAULT, payload);
+                    success = true;
+                    break;
+                }
+            } catch (JsonProcessingException e) {
+                log.error("Error serializing payload: {}", e.getMessage());
+                return;
+            }
+        }
+
+        if (!success) {
+            try {
+                if (client.sendPayment(ProcessorType.FALLBACK, payload)) {
+                    summary.persistPayment(ProcessorType.FALLBACK, payload);
+                    success = true;
+                }
+            } catch (JsonProcessingException e) {
+                log.error("Error serializing payload for fallback: {}", e.getMessage());
+            }
+        }
+
+        if (!success) {
+            log.error("Failed to process payment after all retries and fallbacks: {}", payload);
+        }
+    }
+
+    @Override
+    public void run(String... args) {
+        for (int i = 0; i < workerThreads; i++) {
+            Thread.ofVirtual().name("payment-worker-" + i).start(this::runWorker);
+        }
     }
 }

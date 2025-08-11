@@ -2,32 +2,53 @@ package br.com.pvss.rinhabackend2025.client;
 
 import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
-import org.springframework.beans.factory.annotation.Qualifier;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Mono;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 @Component
 public class PaymentProcessorClient {
 
-    private final WebClient defaultClient;
-    private final WebClient fallbackClient;
+    private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
+    private final String defaultUrl;
+    private final String fallbackUrl;
 
-    public PaymentProcessorClient(@Qualifier("defaultProcessorClient") WebClient defaultClient,
-                                  @Qualifier("fallbackProcessorClient") WebClient fallbackClient) {
-        this.defaultClient = defaultClient;
-        this.fallbackClient = fallbackClient;
+    public PaymentProcessorClient(HttpClient httpClient,
+                                  ObjectMapper objectMapper,
+                                  @Value("${payment.processor.default.url}") String defaultUrl,
+                                  @Value("${payment.processor.fallback.url}") String fallbackUrl) {
+        this.httpClient = httpClient;
+        this.objectMapper = objectMapper;
+        this.defaultUrl = defaultUrl;
+        this.fallbackUrl = fallbackUrl;
     }
 
-    public Mono<ProcessorType> sendPayment(ProcessorType type, ProcessorPaymentRequest payload) {
-        WebClient client = (type == ProcessorType.DEFAULT) ? defaultClient : fallbackClient;
-        return client.post()
-                .uri("/payments")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(payload)
-                .retrieve()
-                .toBodilessEntity()
-                .thenReturn(type);
+    public boolean sendPayment(ProcessorType type, ProcessorPaymentRequest payload) throws JsonProcessingException {
+        String url = (type == ProcessorType.DEFAULT) ? defaultUrl : fallbackUrl;
+        String jsonPayload = objectMapper.writeValueAsString(payload);
+
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .timeout(Duration.ofMillis(300))
+                .uri(URI.create(url + "/payments"))
+                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
+
+        try {
+            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() >= 200 && response.statusCode() < 300;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
