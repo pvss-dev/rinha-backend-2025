@@ -12,10 +12,6 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.core.publisher.Mono;
-import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -30,8 +26,6 @@ public class HealthCheckService {
     private static final String FALLBACK_ID = "fallback";
 
     private final ReactiveMongoTemplate mongo;
-    private final WebClient ppDefault;
-    private final WebClient ppFallback;
     private final String hostId = System.getenv().getOrDefault("HOSTNAME", UUID.randomUUID().toString());
 
     public HealthCheckService(
