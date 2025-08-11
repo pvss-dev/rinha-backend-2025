@@ -5,7 +5,10 @@ import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import br.com.pvss.rinhabackend2025.dto.SummaryResponse;
 import br.com.pvss.rinhabackend2025.model.PaymentEvent;
+import com.mongodb.DuplicateKeyException;
 import org.bson.Document;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
@@ -21,6 +24,7 @@ import java.util.stream.Collectors;
 @Service
 public class MongoSummaryService {
 
+    private static final Logger logger = LoggerFactory.getLogger(MongoSummaryService.class);
     private final MongoTemplate mongo;
 
     public MongoSummaryService(MongoTemplate mongo) {
@@ -30,7 +34,11 @@ public class MongoSummaryService {
     public void persistPayment(ProcessorType p, ProcessorPaymentRequest payload) {
         long cents = payload.amount().movePointRight(2).longValueExact();
         PaymentEvent event = new PaymentEvent(payload.correlationId(), cents, p, payload.requestedAt());
-        mongo.save(event);
+        try {
+            mongo.insert(event);
+        } catch (DuplicateKeyException e) {
+            logger.error("Duplicate payment event detected", e);
+        }
     }
 
     private PaymentsSummaryResponse toPaymentsSummary(Document doc) {
