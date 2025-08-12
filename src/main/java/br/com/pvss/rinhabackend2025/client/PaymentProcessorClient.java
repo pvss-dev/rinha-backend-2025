@@ -15,6 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.UUID;
 
 @Component
 public class PaymentProcessorClient {
@@ -81,7 +82,7 @@ public class PaymentProcessorClient {
         return new HealthResponse(true, Integer.MAX_VALUE);
     }
 
-    public boolean wasProcessed(ProcessorType type, java.util.UUID id) {
+    public boolean wasProcessed(ProcessorType type, UUID id) {
         String base = (type == ProcessorType.DEFAULT) ? defaultUrl : fallbackUrl;
         HttpRequest req = HttpRequest.newBuilder()
                 .timeout(Duration.ofMillis(500))

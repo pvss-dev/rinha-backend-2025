@@ -24,19 +24,22 @@ public class PaymentService implements CommandLineRunner {
     private final MongoSummaryService summary;
     private final HealthCheckService healthCheckService;
     private final int workerThreads;
+    private final int paymentTimeoutMs;
 
     public PaymentService(
             PaymentProcessorClient client,
             MongoSummaryService summary,
             HealthCheckService healthCheckService,
             BlockingQueue<ProcessorPaymentRequest> paymentQueue,
-            @Value("${worker.threads}") int workerThreads
+            @Value("${worker.threads}") int workerThreads,
+            @Value("${payment.timeout.ms}") int paymentTimeoutMs
     ) {
         this.client = client;
         this.summary = summary;
         this.healthCheckService = healthCheckService;
         this.paymentQueue = paymentQueue;
         this.workerThreads = workerThreads;
+        this.paymentTimeoutMs = paymentTimeoutMs;
     }
 
     public boolean enqueue(PaymentRequestDto request) {
@@ -75,12 +78,28 @@ public class PaymentService implements CommandLineRunner {
         for (ProcessorType p : new ProcessorType[]{first, second}) {
             for (int i = 0; i < 2; i++) {
                 SendResult r = client.sendPayment(p, payload);
+
                 if (r == SendResult.SUCCESS) {
                     summary.persistPayment(p, payload);
                     return;
                 }
+
                 if (r == SendResult.DUPLICATE) {
+                    summary.persistPayment(p, payload);
                     return;
+                }
+
+                if (r == SendResult.RETRIABLE_FAILURE && p == first) {
+                    int backoff = Math.min(200, Math.max(50, paymentTimeoutMs / 2));
+                    try {
+                        Thread.sleep(backoff);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                    if (client.wasProcessed(first, payload.correlationId())) {
+                        summary.persistPayment(first, payload);
+                        return;
+                    }
                 }
 
                 if (client.wasProcessed(p, payload.correlationId())) {
