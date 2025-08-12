@@ -2,7 +2,6 @@ services:
   mongodb:
     image: mongo:7.0
     command:
-      - --wiredTigerCacheSizeGB=0.06
       - --quiet
     healthcheck:
       test: [ "CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep 1 >/dev/null" ]
