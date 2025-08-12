@@ -29,8 +29,8 @@ public class HealthCheckService {
 
     public HealthCheckService(
             PaymentProcessorClient client,
-            @Value("${health.enabled:true}") boolean healthEnabled,
-            @Value("${health.stale.ms:15000}") long healthStaleMs
+            @Value("${health.enabled}") boolean healthEnabled,
+            @Value("${health.stale.ms}") long healthStaleMs
     ) {
         this.client = client;
         this.healthEnabled = healthEnabled;
@@ -40,14 +40,18 @@ public class HealthCheckService {
         healthCache.put(ProcessorType.FALLBACK, new HealthState(false, Integer.MAX_VALUE, now));
     }
 
-    @Scheduled(fixedRateString = "${health.fixed.rate.ms:5000}",
-            initialDelayString = "${health.default.initial.delay.ms:0}")
+    @Scheduled(
+            fixedRateString = "${health.fixed.rate.ms}",
+            initialDelayString = "${health.default.initial.delay.ms}"
+    )
     public void checkDefault() {
         checkAndUpdate(ProcessorType.DEFAULT);
     }
 
-    @Scheduled(fixedRateString = "${health.fixed.rate.ms:5000}",
-            initialDelayString = "${health.fallback.initial.delay.ms:2500}")
+    @Scheduled(
+            fixedRateString = "${health.fixed.rate.ms}",
+            initialDelayString = "${health.fallback.initial.delay.ms}"
+    )
     public void checkFallback() {
         checkAndUpdate(ProcessorType.FALLBACK);
     }
@@ -76,9 +80,7 @@ public class HealthCheckService {
         boolean dOk = dFresh && d.healthy() && d.minResponseTime() <= paymentTimeoutMs;
         boolean fOk = fFresh && f.healthy() && f.minResponseTime() <= paymentTimeoutMs;
 
-        if (dOk && fOk) {
-            return d.minResponseTime() <= f.minResponseTime() ? ProcessorType.DEFAULT : ProcessorType.FALLBACK;
-        }
+        if (dOk && fOk) return ProcessorType.DEFAULT;
         if (dOk) return ProcessorType.DEFAULT;
         if (fOk) return ProcessorType.FALLBACK;
         return null;

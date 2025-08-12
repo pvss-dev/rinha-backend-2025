@@ -37,7 +37,7 @@ public class MongoSummaryService {
         try {
             mongo.insert(event);
         } catch (DuplicateKeyException e) {
-            logger.error("Duplicate payment event detected", e);
+            logger.warn("Duplicate payment event detected", e);
         }
     }
 

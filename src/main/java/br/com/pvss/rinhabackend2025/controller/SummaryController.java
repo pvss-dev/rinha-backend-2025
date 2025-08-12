@@ -19,10 +19,8 @@ public class SummaryController {
 
     @GetMapping("/payments-summary")
     public SummaryResponse getSummary(
-            @RequestParam(required = false)
-            Instant from,
-            @RequestParam(required = false)
-            Instant to
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to
     ) {
         return summary.summary(from, to);
     }
