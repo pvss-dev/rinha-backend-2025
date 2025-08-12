@@ -28,6 +28,8 @@ services:
       - payment-processor
     ports:
       - "8080:8080"
+    environment:
+      - HEALTH_SCHEDULING_ENABLED=true
     deploy:
       resources:
         limits:
@@ -38,6 +40,8 @@ services:
     <<: *api-1
     ports:
       - "8081:8080"
+    environment:
+      - HEALTH_SCHEDULING_ENABLED=false
     deploy:
       resources:
         limits:
