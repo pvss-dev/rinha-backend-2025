@@ -13,27 +13,27 @@ import org.springframework.stereotype.Service;
 
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 @Service
 public class PaymentService implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
+
     private final BlockingQueue<ProcessorPaymentRequest> paymentQueue;
     private final PaymentProcessorClient client;
     private final MongoSummaryService summary;
     private final HealthCheckService healthCheckService;
     private final int workerThreads;
     private final int paymentTimeoutMs;
+    private final BlockingQueue<PersistOp> persistQueue = new LinkedBlockingQueue<>(20000);
 
-    public PaymentService(
-            PaymentProcessorClient client,
-            MongoSummaryService summary,
-            HealthCheckService healthCheckService,
-            BlockingQueue<ProcessorPaymentRequest> paymentQueue,
-            @Value("${worker.threads}") int workerThreads,
-            @Value("${payment.timeout.ms}") int paymentTimeoutMs
-    ) {
+    private record PersistOp(ProcessorType p, ProcessorPaymentRequest payload) {
+    }
+
+    public PaymentService(PaymentProcessorClient client, MongoSummaryService summary, HealthCheckService healthCheckService, BlockingQueue<ProcessorPaymentRequest> paymentQueue, @Value("${worker.threads}") int workerThreads, @Value("${payment.timeout.ms}") int paymentTimeoutMs) {
         this.client = client;
         this.summary = summary;
         this.healthCheckService = healthCheckService;
@@ -42,11 +42,32 @@ public class PaymentService implements CommandLineRunner {
         this.paymentTimeoutMs = paymentTimeoutMs;
     }
 
+    private static <T> void offerOrBlock(BlockingQueue<T> q, T item) {
+        for (int i = 0; i < 64; i++) {
+            if (q.offer(item)) return;
+            Thread.onSpinWait();
+        }
+        try {
+            q.put(item);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void safePersist(ProcessorType p, ProcessorPaymentRequest payload) {
+        try {
+            summary.persistPayment(p, payload);
+        } catch (Exception e) {
+            offerOrBlock(persistQueue, new PersistOp(p, payload));
+        }
+    }
+
     public boolean enqueue(PaymentRequestDto request) {
         var normalized = request.amount().setScale(2, RoundingMode.HALF_EVEN);
-        var now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        var now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         var payload = new ProcessorPaymentRequest(request.correlationId(), normalized, now);
-        return paymentQueue.offer(payload);
+        offerOrBlock(paymentQueue, payload);
+        return true;
     }
 
     private void runWorker() {
@@ -56,7 +77,7 @@ public class PaymentService implements CommandLineRunner {
                 try {
                     processPayment(req);
                 } catch (Exception ex) {
-                    log.error("Erro processando {}, descartando", req.correlationId(), ex);
+                    log.error("Erro processando {}, descartando do ciclo (evento será re-enfileirado se necessário)", req.correlationId(), ex);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -65,15 +86,47 @@ public class PaymentService implements CommandLineRunner {
         }
     }
 
+    private void runPersistWorker() {
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                PersistOp op = persistQueue.take();
+                int tries = 0;
+                while (true) {
+                    try {
+                        summary.persistPayment(op.p(), op.payload());
+                        break;
+                    } catch (org.springframework.dao.DuplicateKeyException dk) {
+                        break;
+                    } catch (Exception ex) {
+                        if (++tries >= 20) {
+                            offerOrBlock(persistQueue, op);
+                            try {
+                                Thread.sleep(50);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                            }
+                            break;
+                        }
+                        try {
+                            Thread.sleep(25);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     private void processPayment(ProcessorPaymentRequest payload) {
         ProcessorType first = healthCheckService.getAvailableProcessor();
         if (first == null) {
-            boolean requeued = paymentQueue.offer(payload);
-            if (!requeued) {
-                log.warn("Re-enqueue falhou (fila cheia). Descartando pagamento {}", payload.correlationId());
-            }
+            offerOrBlock(paymentQueue, payload);
             return;
         }
+
         ProcessorType second = (first == ProcessorType.DEFAULT) ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
 
         for (ProcessorType p : new ProcessorType[]{first, second}) {
@@ -81,15 +134,15 @@ public class PaymentService implements CommandLineRunner {
                 SendResult r = client.sendPayment(p, payload);
 
                 if (r == SendResult.SUCCESS) {
-                    summary.persistPayment(p, payload);
+                    safePersist(p, payload);
                     if (p == ProcessorType.FALLBACK && client.wasProcessed(ProcessorType.DEFAULT, payload.correlationId())) {
-                        summary.persistPayment(ProcessorType.DEFAULT, payload);
+                        safePersist(ProcessorType.DEFAULT, payload);
                     }
                     return;
                 }
 
                 if (r == SendResult.DUPLICATE) {
-                    summary.persistPayment(p, payload);
+                    safePersist(p, payload);
                     return;
                 }
 
@@ -101,27 +154,28 @@ public class PaymentService implements CommandLineRunner {
                         Thread.currentThread().interrupt();
                     }
                     if (client.wasProcessed(first, payload.correlationId())) {
-                        summary.persistPayment(first, payload);
+                        safePersist(first, payload);
                         return;
                     }
                 }
 
                 if (client.wasProcessed(p, payload.correlationId())) {
-                    summary.persistPayment(p, payload);
+                    safePersist(p, payload);
                     return;
                 }
             }
         }
 
-        if (!paymentQueue.offer(payload)) {
-            log.warn("Re-enqueue falhou (fila cheia). Descartando pagamento {}", payload.correlationId());
-        }
+        offerOrBlock(paymentQueue, payload);
     }
 
     @Override
     public void run(String... args) {
         for (int i = 0; i < workerThreads; i++) {
             Thread.ofVirtual().name("payment-worker-" + i).start(this::runWorker);
+        }
+        for (int i = 0; i < 3; i++) {
+            Thread.ofVirtual().name("persist-worker-" + i).start(this::runPersistWorker);
         }
     }
 }

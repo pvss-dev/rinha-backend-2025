@@ -26,8 +26,6 @@ public class HealthCheckService {
     private final PaymentProcessorClient client;
     private final Map<ProcessorType, HealthState> healthCache = new ConcurrentHashMap<>();
     private final ExecutorService healthCheckExecutor = Executors.newFixedThreadPool(2);
-    @Value("${health.scheduling.enabled:true}")
-    private boolean schedulingEnabled;
     @Value("${payment.timeout.ms}")
     private int paymentTimeoutMs;
 
@@ -41,8 +39,6 @@ public class HealthCheckService {
 
     @Scheduled(fixedRate = 5000)
     public void performHealthCheck() {
-        if (!schedulingEnabled) return;
-
         long now = System.currentTimeMillis();
 
         Future<HealthResponse> df = healthCheckExecutor.submit(() -> client.checkHealth(ProcessorType.DEFAULT));

@@ -85,7 +85,7 @@ public class PaymentProcessorClient {
     public boolean wasProcessed(ProcessorType type, UUID id) {
         String base = (type == ProcessorType.DEFAULT) ? defaultUrl : fallbackUrl;
         HttpRequest req = HttpRequest.newBuilder()
-                .timeout(Duration.ofMillis(500))
+                .timeout(paymentTimeout.plusMillis(100))
                 .uri(URI.create(base + "/payments/" + id))
                 .GET()
                 .build();
