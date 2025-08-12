@@ -73,13 +73,14 @@ public class PaymentProcessorClient {
                 .GET()
                 .build();
         try {
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) {
-                return objectMapper.readValue(response.body(), HealthResponse.class);
+            HttpResponse<String> r = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() == 200) {
+                return objectMapper.readValue(r.body(), HealthResponse.class);
             }
+            return null;
         } catch (Exception ignored) {
+            return null;
         }
-        return new HealthResponse(true, Integer.MAX_VALUE);
     }
 
     public boolean wasProcessed(ProcessorType type, UUID id) {

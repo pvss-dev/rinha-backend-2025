@@ -28,6 +28,10 @@ services:
       - payment-processor
     ports:
       - "8080:8080"
+    environment:
+      - HEALTH_ENABLED=true
+      - HEALTH_DEFAULT_INITIAL_DELAY_MS=0
+      - HEALTH_FALLBACK_INITIAL_DELAY_MS=2500
     deploy:
       resources:
         limits:
@@ -38,6 +42,8 @@ services:
     <<: *api-1
     ports:
       - "8081:8080"
+    environment:
+      - HEALTH_ENABLED=false
     deploy:
       resources:
         limits:

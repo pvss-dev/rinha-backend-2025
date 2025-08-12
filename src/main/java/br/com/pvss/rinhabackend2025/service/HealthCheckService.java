@@ -4,7 +4,6 @@ import br.com.pvss.rinhabackend2025.client.PaymentProcessorClient;
 import br.com.pvss.rinhabackend2025.dto.HealthResponse;
 import br.com.pvss.rinhabackend2025.dto.HealthState;
 import br.com.pvss.rinhabackend2025.dto.ProcessorType;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,70 +12,75 @@ import org.springframework.stereotype.Service;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-
-import static java.util.concurrent.TimeUnit.SECONDS;
 
 @Service
 public class HealthCheckService {
 
     private static final Logger log = LoggerFactory.getLogger(HealthCheckService.class);
+
     private final PaymentProcessorClient client;
     private final Map<ProcessorType, HealthState> healthCache = new ConcurrentHashMap<>();
-    private final ExecutorService healthCheckExecutor = Executors.newFixedThreadPool(2);
+
     @Value("${payment.timeout.ms}")
     private int paymentTimeoutMs;
 
+    private final boolean healthEnabled;
+    private final long healthStaleMs;
 
-    public HealthCheckService(PaymentProcessorClient client) {
+    public HealthCheckService(
+            PaymentProcessorClient client,
+            @Value("${health.enabled:true}") boolean healthEnabled,
+            @Value("${health.stale.ms:15000}") long healthStaleMs
+    ) {
         this.client = client;
+        this.healthEnabled = healthEnabled;
+        this.healthStaleMs = healthStaleMs;
         long now = System.currentTimeMillis();
         healthCache.put(ProcessorType.DEFAULT, new HealthState(false, Integer.MAX_VALUE, now));
         healthCache.put(ProcessorType.FALLBACK, new HealthState(false, Integer.MAX_VALUE, now));
     }
 
-    @Scheduled(fixedRate = 5000)
-    public void performHealthCheck() {
+    @Scheduled(fixedRateString = "${health.fixed.rate.ms:5000}",
+            initialDelayString = "${health.default.initial.delay.ms:0}")
+    public void checkDefault() {
+        checkAndUpdate(ProcessorType.DEFAULT);
+    }
+
+    @Scheduled(fixedRateString = "${health.fixed.rate.ms:5000}",
+            initialDelayString = "${health.fallback.initial.delay.ms:2500}")
+    public void checkFallback() {
+        checkAndUpdate(ProcessorType.FALLBACK);
+    }
+
+    private void checkAndUpdate(ProcessorType type) {
+        if (!healthEnabled) return;
+
         long now = System.currentTimeMillis();
+        HealthResponse hr = client.checkHealth(type);
 
-        Future<HealthResponse> df = healthCheckExecutor.submit(() -> client.checkHealth(ProcessorType.DEFAULT));
-        Future<HealthResponse> ff = healthCheckExecutor.submit(() -> client.checkHealth(ProcessorType.FALLBACK));
-
-        try {
-            HealthResponse dh = df.get(2, SECONDS);
-            healthCache.put(ProcessorType.DEFAULT, new HealthState(!dh.failing(), dh.minResponseTime(), now));
-        } catch (Exception e) {
-            log.warn("Health check falhou para DEFAULT. Considerando DOWN.", e);
-            healthCache.put(ProcessorType.DEFAULT, new HealthState(false, Integer.MAX_VALUE, now));
-        }
-
-        try {
-            HealthResponse fh = ff.get(2, SECONDS);
-            healthCache.put(ProcessorType.FALLBACK, new HealthState(!fh.failing(), fh.minResponseTime(), now));
-        } catch (Exception e) {
-            log.warn("Health check falhou para FALLBACK. Considerando DOWN.", e);
-            healthCache.put(ProcessorType.FALLBACK, new HealthState(false, Integer.MAX_VALUE, now));
+        if (hr != null) {
+            healthCache.put(type, new HealthState(!hr.failing(), hr.minResponseTime(), now));
+        } else {
+            log.debug("Health check sem sucesso para {} (mantendo último estado).", type);
         }
     }
 
     public ProcessorType getAvailableProcessor() {
+        long now = System.currentTimeMillis();
         HealthState d = healthCache.get(ProcessorType.DEFAULT);
         HealthState f = healthCache.get(ProcessorType.FALLBACK);
 
-        boolean dOk = d != null && d.healthy() && d.minResponseTime() <= paymentTimeoutMs;
-        boolean fOk = f != null && f.healthy() && f.minResponseTime() <= paymentTimeoutMs;
+        boolean dFresh = d != null && (now - d.timestamp()) <= healthStaleMs;
+        boolean fFresh = f != null && (now - f.timestamp()) <= healthStaleMs;
 
-        if (dOk && fOk)
+        boolean dOk = dFresh && d.healthy() && d.minResponseTime() <= paymentTimeoutMs;
+        boolean fOk = fFresh && f.healthy() && f.minResponseTime() <= paymentTimeoutMs;
+
+        if (dOk && fOk) {
             return d.minResponseTime() <= f.minResponseTime() ? ProcessorType.DEFAULT : ProcessorType.FALLBACK;
+        }
         if (dOk) return ProcessorType.DEFAULT;
         if (fOk) return ProcessorType.FALLBACK;
         return null;
-    }
-
-    @PreDestroy
-    public void shutdown() {
-        healthCheckExecutor.shutdown();
     }
 }
