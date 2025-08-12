@@ -26,7 +26,7 @@ public class HttpClientConfiguration {
 
     @Bean
     public BlockingQueue<ProcessorPaymentRequest> paymentQueue(
-            @Value("${queue.capacity:5000}") int capacity) {
+            @Value("${queue.capacity}") int capacity) {
         return new LinkedBlockingQueue<>(capacity);
     }
 }

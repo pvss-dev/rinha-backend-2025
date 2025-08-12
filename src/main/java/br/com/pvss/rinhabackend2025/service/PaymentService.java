@@ -25,11 +25,13 @@ public class PaymentService implements CommandLineRunner {
     private final HealthCheckService healthCheckService;
     private final int workerThreads;
 
-    public PaymentService(PaymentProcessorClient client,
-                          MongoSummaryService summary,
-                          HealthCheckService healthCheckService,
-                          BlockingQueue<ProcessorPaymentRequest> paymentQueue,
-                          @Value("${worker.threads:20}") int workerThreads) {
+    public PaymentService(
+            PaymentProcessorClient client,
+            MongoSummaryService summary,
+            HealthCheckService healthCheckService,
+            BlockingQueue<ProcessorPaymentRequest> paymentQueue,
+            @Value("${worker.threads}") int workerThreads
+    ) {
         this.client = client;
         this.summary = summary;
         this.healthCheckService = healthCheckService;
@@ -80,7 +82,16 @@ public class PaymentService implements CommandLineRunner {
                 if (r == SendResult.DUPLICATE) {
                     return;
                 }
+
+                if (client.wasProcessed(p, payload.correlationId())) {
+                    summary.persistPayment(p, payload);
+                    return;
+                }
             }
+        }
+
+        if (!paymentQueue.offer(payload)) {
+            log.warn("Re-enqueue falhou (fila cheia). Descartando pagamento {}", payload.correlationId());
         }
     }
 

@@ -23,17 +23,23 @@ public class PaymentProcessorClient {
     private final ObjectMapper objectMapper;
     private final String defaultUrl;
     private final String fallbackUrl;
-    private static final Duration PAYMENT_TIMEOUT = Duration.ofMillis(1000);
-    private static final Duration HEALTH_TIMEOUT = Duration.ofSeconds(1);
+    private final Duration paymentTimeout;
+    private final Duration healthTimeout;
 
-    public PaymentProcessorClient(HttpClient httpClient,
-                                  ObjectMapper objectMapper,
-                                  @Value("${payment.processor.default.url}") String defaultUrl,
-                                  @Value("${payment.processor.fallback.url}") String fallbackUrl) {
+    public PaymentProcessorClient(
+            HttpClient httpClient,
+            ObjectMapper objectMapper,
+            @Value("${payment.processor.default.url}") String defaultUrl,
+            @Value("${payment.processor.fallback.url}") String fallbackUrl,
+            @Value("${payment.timeout.ms}") int paymentTimeoutMs,
+            @Value("${health.timeout.ms}") int healthTimeoutMs
+    ) {
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
         this.defaultUrl = defaultUrl;
         this.fallbackUrl = fallbackUrl;
+        this.paymentTimeout = Duration.ofMillis(paymentTimeoutMs);
+        this.healthTimeout = Duration.ofMillis(healthTimeoutMs);
     }
 
     public SendResult sendPayment(ProcessorType type, ProcessorPaymentRequest payload) {
@@ -42,7 +48,7 @@ public class PaymentProcessorClient {
             final String json = objectMapper.writeValueAsString(payload);
 
             HttpRequest httpRequest = HttpRequest.newBuilder()
-                    .timeout(PAYMENT_TIMEOUT)
+                    .timeout(paymentTimeout)
                     .uri(URI.create(url + "/payments"))
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .POST(HttpRequest.BodyPublishers.ofString(json))
@@ -61,11 +67,10 @@ public class PaymentProcessorClient {
     public HealthResponse checkHealth(ProcessorType type) {
         String url = (type == ProcessorType.DEFAULT) ? defaultUrl : fallbackUrl;
         HttpRequest httpRequest = HttpRequest.newBuilder()
-                .timeout(HEALTH_TIMEOUT)
+                .timeout(healthTimeout)
                 .uri(URI.create(url + "/payments/service-health"))
                 .GET()
                 .build();
-
         try {
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
@@ -74,5 +79,20 @@ public class PaymentProcessorClient {
         } catch (Exception ignored) {
         }
         return new HealthResponse(true, Integer.MAX_VALUE);
+    }
+
+    public boolean wasProcessed(ProcessorType type, java.util.UUID id) {
+        String base = (type == ProcessorType.DEFAULT) ? defaultUrl : fallbackUrl;
+        HttpRequest req = HttpRequest.newBuilder()
+                .timeout(Duration.ofMillis(500))
+                .uri(URI.create(base + "/payments/" + id))
+                .GET()
+                .build();
+        try {
+            HttpResponse<Void> resp = httpClient.send(req, HttpResponse.BodyHandlers.discarding());
+            return resp.statusCode() == 200;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
