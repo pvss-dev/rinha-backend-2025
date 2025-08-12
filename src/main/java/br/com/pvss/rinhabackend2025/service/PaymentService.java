@@ -29,17 +29,27 @@ public class PaymentService implements CommandLineRunner {
     private final int workerThreads;
     private final int paymentTimeoutMs;
     private final BlockingQueue<PersistOp> persistQueue = new LinkedBlockingQueue<>(20000);
+    private final int enqueueMaxWaitMs;
 
     private record PersistOp(ProcessorType p, ProcessorPaymentRequest payload) {
     }
 
-    public PaymentService(PaymentProcessorClient client, MongoSummaryService summary, HealthCheckService healthCheckService, BlockingQueue<ProcessorPaymentRequest> paymentQueue, @Value("${worker.threads}") int workerThreads, @Value("${payment.timeout.ms}") int paymentTimeoutMs) {
+    public PaymentService(
+            PaymentProcessorClient client,
+            MongoSummaryService summary,
+            HealthCheckService healthCheckService,
+            BlockingQueue<ProcessorPaymentRequest> paymentQueue,
+            @Value("${worker.threads}") int workerThreads,
+            @Value("${payment.timeout.ms}") int paymentTimeoutMs,
+            @Value("${enqueue.maxWait.ms}") int enqueueMaxWaitMs
+    ) {
         this.client = client;
         this.summary = summary;
         this.healthCheckService = healthCheckService;
         this.paymentQueue = paymentQueue;
         this.workerThreads = workerThreads;
         this.paymentTimeoutMs = paymentTimeoutMs;
+        this.enqueueMaxWaitMs = enqueueMaxWaitMs;
     }
 
     private static <T> void offerOrBlock(BlockingQueue<T> q, T item) {
@@ -66,8 +76,12 @@ public class PaymentService implements CommandLineRunner {
         var normalized = request.amount().setScale(2, RoundingMode.HALF_EVEN);
         var now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         var payload = new ProcessorPaymentRequest(request.correlationId(), normalized, now);
-        offerOrBlock(paymentQueue, payload);
-        return true;
+        try {
+            return paymentQueue.offer(payload, enqueueMaxWaitMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private void runWorker() {
