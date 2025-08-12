@@ -44,7 +44,8 @@ public class PaymentService implements CommandLineRunner {
 
     public boolean enqueue(PaymentRequestDto request) {
         var normalized = request.amount().setScale(2, RoundingMode.HALF_EVEN);
-        var payload = new ProcessorPaymentRequest(request.correlationId(), normalized, Instant.now());
+        var now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        var payload = new ProcessorPaymentRequest(request.correlationId(), normalized, now);
         return paymentQueue.offer(payload);
     }
 
@@ -81,6 +82,9 @@ public class PaymentService implements CommandLineRunner {
 
                 if (r == SendResult.SUCCESS) {
                     summary.persistPayment(p, payload);
+                    if (p == ProcessorType.FALLBACK && client.wasProcessed(ProcessorType.DEFAULT, payload.correlationId())) {
+                        summary.persistPayment(ProcessorType.DEFAULT, payload);
+                    }
                     return;
                 }
 

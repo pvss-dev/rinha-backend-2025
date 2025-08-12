@@ -12,7 +12,7 @@ import java.util.UUID;
 @CompoundIndexes({
         @CompoundIndex(name = "idx_proc_time", def = "{'processor':1,'requestedAt':1}"),
         @CompoundIndex(name = "idx_req_time", def = "{'requestedAt':1}"),
-        @CompoundIndex(name = "uk_corr", def = "{'correlationId':1}", unique = true)
+        @CompoundIndex(name = "uk_corr_proc", def = "{'correlationId':1,'processor':1}", unique = true)
 })
 public record PaymentEvent(
         UUID correlationId,
