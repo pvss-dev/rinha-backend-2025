@@ -11,9 +11,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Service
 public class PaymentProcessorService {
@@ -23,6 +25,7 @@ public class PaymentProcessorService {
     private final PaymentProcessorClient paymentProcessorDefault;
     private final PaymentProcessorClient paymentProcessorFallback;
     private final ObjectMapper objectMapper;
+    private final ConcurrentLinkedQueue<ProcessorPaymentRequest> retryQueue = new ConcurrentLinkedQueue<>();
 
     public PaymentProcessorService(
             PaymentRepository paymentRepository,
@@ -42,12 +45,28 @@ public class PaymentProcessorService {
                 paymentRequest.amount(),
                 Instant.now()
         );
+        attemptToProcess(processorRequest);
+    }
+
+    @Scheduled(fixedDelay = 200)
+    public void processRetryQueue() {
+        ProcessorPaymentRequest requestToRetry = retryQueue.poll();
+        if (requestToRetry != null) {
+            attemptToProcess(requestToRetry);
+        }
+    }
+
+    private void attemptToProcess(ProcessorPaymentRequest processorRequest) {
+        if (paymentRepository.existsByCorrelationId(processorRequest.correlationId().toString())) {
+            return;
+        }
 
         String paymentJson;
         try {
             paymentJson = objectMapper.writeValueAsString(processorRequest);
         } catch (JsonProcessingException e) {
-            LOGGER.error("Failed to serialize payment request for correlationId: {}", processorRequest.correlationId(), e);
+            LOGGER.error("Failed to serialize, adding to retry queue. CorrelationId: {}", processorRequest.correlationId(), e);
+            retryQueue.offer(processorRequest);
             return;
         }
 
@@ -56,7 +75,8 @@ public class PaymentProcessorService {
         } else if (paymentProcessorFallback.processPayment(paymentJson)) {
             savePayment(processorRequest, false);
         } else {
-            LOGGER.warn("Payment failed for both processors. CorrelationId: {}", processorRequest.correlationId());
+            LOGGER.warn("Payment failed for both processors, queueing for retry. CorrelationId: {}", processorRequest.correlationId());
+            retryQueue.offer(processorRequest);
         }
     }
 
