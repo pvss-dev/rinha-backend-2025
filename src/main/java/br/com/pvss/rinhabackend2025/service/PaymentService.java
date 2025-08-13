@@ -1,3 +1,4 @@
+// src/main/java/br/com/pvss/rinhabackend2025/service/PaymentService.java
 package br.com.pvss.rinhabackend2025.service;
 
 import br.com.pvss.rinhabackend2025.client.PaymentProcessorClient;
@@ -15,7 +16,8 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class PaymentService implements CommandLineRunner {
@@ -28,11 +30,7 @@ public class PaymentService implements CommandLineRunner {
     private final HealthCheckService healthCheckService;
     private final int workerThreads;
     private final int paymentTimeoutMs;
-    private final BlockingQueue<PersistOp> persistQueue = new LinkedBlockingQueue<>(20000);
     private final int enqueueMaxWaitMs;
-
-    private record PersistOp(ProcessorType p, ProcessorPaymentRequest payload) {
-    }
 
     public PaymentService(
             PaymentProcessorClient client,
@@ -52,23 +50,10 @@ public class PaymentService implements CommandLineRunner {
         this.enqueueMaxWaitMs = enqueueMaxWaitMs;
     }
 
-    private static <T> void offerOrBlock(BlockingQueue<T> q, T item) {
-        for (int i = 0; i < 64; i++) {
-            if (q.offer(item)) return;
-            Thread.onSpinWait();
-        }
-        try {
-            q.put(item);
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private void safePersist(ProcessorType p, ProcessorPaymentRequest payload) {
-        try {
-            summary.persistPayment(p, payload);
-        } catch (Exception e) {
-            offerOrBlock(persistQueue, new PersistOp(p, payload));
+    @Override
+    public void run(String... args) {
+        for (int i = 0; i < workerThreads; i++) {
+            Executors.newVirtualThreadPerTaskExecutor().execute(this::runWorker);
         }
     }
 
@@ -77,7 +62,7 @@ public class PaymentService implements CommandLineRunner {
         var now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         var payload = new ProcessorPaymentRequest(request.correlationId(), normalized, now);
         try {
-            return paymentQueue.offer(payload, enqueueMaxWaitMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            return paymentQueue.offer(payload, enqueueMaxWaitMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
@@ -88,11 +73,7 @@ public class PaymentService implements CommandLineRunner {
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 ProcessorPaymentRequest req = paymentQueue.take();
-                try {
-                    processPayment(req);
-                } catch (Exception ex) {
-                    log.error("Erro processando {}, descartando do ciclo (evento será re-enfileirado se necessário)", req.correlationId(), ex);
-                }
+                processPayment(req);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.error("Worker thread interrupted", e);
@@ -100,96 +81,60 @@ public class PaymentService implements CommandLineRunner {
         }
     }
 
-    private void runPersistWorker() {
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                PersistOp op = persistQueue.take();
-                int tries = 0;
-                while (true) {
-                    try {
-                        summary.persistPayment(op.p(), op.payload());
-                        break;
-                    } catch (org.springframework.dao.DuplicateKeyException dk) {
-                        break;
-                    } catch (Exception ex) {
-                        if (++tries >= 20) {
-                            offerOrBlock(persistQueue, op);
-                            try {
-                                Thread.sleep(50);
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                            }
-                            break;
-                        }
-                        try {
-                            Thread.sleep(25);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                        }
-                    }
-                }
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
     private void processPayment(ProcessorPaymentRequest payload) {
         ProcessorType first = healthCheckService.getAvailableProcessor();
         if (first == null) {
-            offerOrBlock(paymentQueue, payload);
+            try {
+                paymentQueue.put(payload);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             return;
         }
 
         ProcessorType second = (first == ProcessorType.DEFAULT) ? ProcessorType.FALLBACK : ProcessorType.DEFAULT;
 
-        for (ProcessorType p : new ProcessorType[]{first, second}) {
-            for (int i = 0; i < 2; i++) {
-                SendResult r = client.sendPayment(p, payload);
+        SendResult result = trySendPaymentWithRetries(first, payload);
 
-                if (r == SendResult.SUCCESS) {
-                    safePersist(p, payload);
-                    if (p == ProcessorType.FALLBACK && client.wasProcessed(ProcessorType.DEFAULT, payload.correlationId())) {
-                        safePersist(ProcessorType.DEFAULT, payload);
-                    }
-                    return;
-                }
-
-                if (r == SendResult.DUPLICATE) {
-                    safePersist(p, payload);
-                    return;
-                }
-
-                if (r == SendResult.RETRIABLE_FAILURE && p == first) {
-                    int backoff = Math.min(200, Math.max(50, paymentTimeoutMs / 2));
-                    try {
-                        Thread.sleep(backoff);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                    }
-                    if (client.wasProcessed(first, payload.correlationId())) {
-                        safePersist(first, payload);
-                        return;
-                    }
-                }
-
-                if (client.wasProcessed(p, payload.correlationId())) {
-                    safePersist(p, payload);
-                    return;
-                }
-            }
+        if (result == SendResult.SUCCESS || result == SendResult.DUPLICATE) {
+            summary.persistPayment(first, payload);
+            return;
         }
 
-        offerOrBlock(paymentQueue, payload);
+        result = trySendPaymentWithRetries(second, payload);
+
+        if (result == SendResult.SUCCESS || result == SendResult.DUPLICATE) {
+            summary.persistPayment(second, payload);
+            return;
+        }
+
+        log.error("Falha total ao processar pagamento {}. Reenfileirando para nova tentativa.", payload.correlationId());
+        try {
+            paymentQueue.put(payload);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
-    @Override
-    public void run(String... args) {
-        for (int i = 0; i < workerThreads; i++) {
-            Thread.ofVirtual().name("payment-worker-" + i).start(this::runWorker);
+    private SendResult trySendPaymentWithRetries(ProcessorType processor, ProcessorPaymentRequest payload) {
+        for (int i = 0; i < 2; i++) {
+            SendResult result = client.sendPayment(processor, payload);
+            if (result == SendResult.SUCCESS || result == SendResult.DUPLICATE) {
+                return result;
+            }
+            if (result == SendResult.RETRIABLE_FAILURE) {
+                int backoff = Math.min(200, Math.max(50, paymentTimeoutMs / 2));
+                try {
+                    Thread.sleep(backoff);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return SendResult.RETRIABLE_FAILURE;
+                }
+            }
+            if (client.wasProcessed(processor, payload.correlationId())) {
+                return SendResult.SUCCESS;
+            }
         }
-        for (int i = 0; i < 3; i++) {
-            Thread.ofVirtual().name("persist-worker-" + i).start(this::runPersistWorker);
-        }
+        return SendResult.RETRIABLE_FAILURE;
     }
 }

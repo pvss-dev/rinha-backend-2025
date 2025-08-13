@@ -74,15 +74,18 @@ public class HealthCheckService {
         HealthState d = healthCache.get(ProcessorType.DEFAULT);
         HealthState f = healthCache.get(ProcessorType.FALLBACK);
 
-        boolean dFresh = d != null && (now - d.timestamp()) <= healthStaleMs;
-        boolean fFresh = f != null && (now - f.timestamp()) <= healthStaleMs;
+        boolean dIsFreshAndHealthy = d != null && (now - d.timestamp()) <= healthStaleMs && d.healthy() && d.minResponseTime() <= paymentTimeoutMs;
 
-        boolean dOk = dFresh && d.healthy() && d.minResponseTime() <= paymentTimeoutMs;
-        boolean fOk = fFresh && f.healthy() && f.minResponseTime() <= paymentTimeoutMs;
+        boolean fIsFreshAndHealthy = f != null && (now - f.timestamp()) <= healthStaleMs && f.healthy() && f.minResponseTime() <= paymentTimeoutMs;
 
-        if (dOk && fOk) return ProcessorType.DEFAULT;
-        if (dOk) return ProcessorType.DEFAULT;
-        if (fOk) return ProcessorType.FALLBACK;
+        if (dIsFreshAndHealthy) {
+            return ProcessorType.DEFAULT;
+        }
+
+        if (fIsFreshAndHealthy) {
+            return ProcessorType.FALLBACK;
+        }
+
         return null;
     }
 }
