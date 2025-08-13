@@ -14,6 +14,7 @@ public class HttpClientConfiguration {
         return HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .version(HttpClient.Version.HTTP_1_1)
+                .executor(Runnable::run)
                 .connectTimeout(Duration.ofMillis(60))
                 .build();
     }
