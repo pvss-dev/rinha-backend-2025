@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-public record PaymentRequestDto(
+public record PaymentProcessorRequest(
         @NotNull
         UUID correlationId,
         @NotNull
