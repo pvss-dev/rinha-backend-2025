@@ -1,131 +1,76 @@
 package br.com.pvss.rinhabackend2025.service;
 
 import br.com.pvss.rinhabackend2025.config.PaymentProcessorClient;
+import br.com.pvss.rinhabackend2025.dto.PaymentProcessorRequest;
 import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
-import br.com.pvss.rinhabackend2025.model.CompletePaymentProcessor;
 import br.com.pvss.rinhabackend2025.model.PaymentDocument;
 import br.com.pvss.rinhabackend2025.repository.PaymentRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.LinkedBlockingQueue;
+import java.time.Instant;
 
 @Service
 public class PaymentProcessorService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(PaymentProcessorService.class);
     private final PaymentRepository paymentRepository;
-
     private final PaymentProcessorClient paymentProcessorDefault;
-
     private final PaymentProcessorClient paymentProcessorFallback;
-
-    private final LinkedBlockingQueue<CompletePaymentProcessor> paymentsPendentes = new LinkedBlockingQueue<>();
+    private final ObjectMapper objectMapper;
 
     public PaymentProcessorService(
             PaymentRepository paymentRepository,
             @Qualifier("paymentProcessorDefaultClient") PaymentProcessorClient paymentProcessorDefault,
-            @Qualifier("paymentProcessorFallbackClient") PaymentProcessorClient paymentProcessorFallback
-    ) {
-
+            @Qualifier("paymentProcessorFallbackClient") PaymentProcessorClient paymentProcessorFallback,
+            ObjectMapper objectMapper) {
         this.paymentRepository = paymentRepository;
         this.paymentProcessorDefault = paymentProcessorDefault;
         this.paymentProcessorFallback = paymentProcessorFallback;
-
-        for (int i = 0; i < 20; i++) {
-            Thread.startVirtualThread(this::runWorker);
-        }
+        this.objectMapper = objectMapper;
     }
 
-    private void runWorker() {
-        while (true) {
-            var request = buscarPayment();
-            processPayment(request);
-        }
-    }
+    @Async
+    public void processAndSavePayment(PaymentProcessorRequest paymentRequest) {
+        ProcessorPaymentRequest processorRequest = new ProcessorPaymentRequest(
+                paymentRequest.correlationId(),
+                paymentRequest.amount(),
+                Instant.now()
+        );
 
-    private void processPayment(CompletePaymentProcessor paymentProcessorCompleto) {
-        boolean sucesso = pagar(paymentProcessorCompleto);
-        if (sucesso) {
+        String paymentJson;
+        try {
+            paymentJson = objectMapper.writeValueAsString(processorRequest);
+        } catch (JsonProcessingException e) {
+            LOGGER.error("Failed to serialize payment request for correlationId: {}", processorRequest.correlationId(), e);
             return;
         }
-        adicionaNaFila(paymentProcessorCompleto);
-    }
 
-    public CompletePaymentProcessor buscarPayment() {
-        try {
-            return paymentsPendentes.take();
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+        if (paymentProcessorDefault.processPayment(paymentJson)) {
+            savePayment(processorRequest, true);
+        } else if (paymentProcessorFallback.processPayment(paymentJson)) {
+            savePayment(processorRequest, false);
+        } else {
+            LOGGER.warn("Payment failed for both processors. CorrelationId: {}", processorRequest.correlationId());
         }
     }
 
-    public void adicionaNaFila(CompletePaymentProcessor paymentProcessorCompleto) {
-        paymentsPendentes.offer(paymentProcessorCompleto);
-    }
-
-    public String convertObjectToJson(ProcessorPaymentRequest request) {
-        return """
-                {
-                  "correlationId": "%s",
-                  "amount": %s,
-                  "requestedAt": "%s"
-                }
-                """.formatted(
-                escape(request.correlationId().toString()),
-                request.amount().toPlainString(),
-                request.requestedAt().toString()
-        ).replace("\n", "").replace("  ", "");
-    }
-
-    private String escape(String value) {
-        return value.replace("\"", "\\\"");
-    }
-
-    public boolean pagar(CompletePaymentProcessor paymentProcessorCompleto) {
-        try {
-
-            boolean sucesso;
-            for (int tentativa = 0; tentativa < 15; tentativa++) {
-
-                sucesso = enviarRequisicao(paymentProcessorCompleto.paymentJson(), true);
-                if (sucesso) {
-                    salvarDocument(paymentProcessorCompleto.request(), true);
-                    return true;
-                }
-            }
-
-            sucesso = enviarRequisicao(paymentProcessorCompleto.paymentJson(), false);
-            if (sucesso) {
-                salvarDocument(paymentProcessorCompleto.request(), false);
-                return true;
-            }
-            return false;
-        } catch (Exception e) {
-            return false;
+    private void savePayment(ProcessorPaymentRequest request, boolean isDefault) {
+        if (paymentRepository.existsByCorrelationId(request.correlationId().toString())) {
+            LOGGER.warn("Attempted to save a duplicate payment with correlationId: {}", request.correlationId());
+            return;
         }
-    }
 
-    public boolean enviarRequisicao(String payment, boolean processadorDefault) {
-
-        try {
-            if (processadorDefault) {
-                return paymentProcessorDefault.processPayment(payment);
-            } else {
-                return paymentProcessorFallback.processPayment(payment);
-            }
-        } catch (Exception ex) {
-            return false;
-        }
-    }
-
-    public void salvarDocument(ProcessorPaymentRequest paymentProcessorRequest, boolean isDefault) {
         PaymentDocument doc = new PaymentDocument();
-
-        doc.setCorrelationId(paymentProcessorRequest.correlationId().toString());
-        doc.setAmount(paymentProcessorRequest.amount());
+        doc.setCorrelationId(request.correlationId().toString());
+        doc.setAmount(request.amount());
         doc.setPaymentProcessorDefault(isDefault);
-        doc.setCreatedAt(paymentProcessorRequest.requestedAt());
-
+        doc.setCreatedAt(request.requestedAt());
         paymentRepository.save(doc);
     }
 }
