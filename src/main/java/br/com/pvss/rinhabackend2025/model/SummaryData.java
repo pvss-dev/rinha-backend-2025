@@ -9,12 +9,11 @@ public class SummaryData {
 
     @Id
     private ProcessorType processor;
-    private final long totalRequests;
-    private final long totalAmountCents;
+    private long totalRequests;
+    private long totalAmountCents;
 
-    public SummaryData(long totalRequests, long totalAmountCents) {
-        this.totalRequests = totalRequests;
-        this.totalAmountCents = totalAmountCents;
+    public ProcessorType getProcessor() {
+        return processor;
     }
 
     public long getTotalRequests() {
@@ -23,5 +22,17 @@ public class SummaryData {
 
     public long getTotalAmountCents() {
         return totalAmountCents;
+    }
+
+    public void setProcessor(ProcessorType processor) {
+        this.processor = processor;
+    }
+
+    public void setTotalRequests(long totalRequests) {
+        this.totalRequests = totalRequests;
+    }
+
+    public void setTotalAmountCents(long totalAmountCents) {
+        this.totalAmountCents = totalAmountCents;
     }
 }

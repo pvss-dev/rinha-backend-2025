@@ -16,6 +16,7 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -23,7 +24,7 @@ import java.util.concurrent.TimeUnit;
 public class PaymentService implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
-
+    private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
     private final BlockingQueue<ProcessorPaymentRequest> paymentQueue;
     private final PaymentProcessorClient client;
     private final MongoSummaryService summary;
@@ -50,10 +51,11 @@ public class PaymentService implements CommandLineRunner {
         this.enqueueMaxWaitMs = enqueueMaxWaitMs;
     }
 
+
     @Override
     public void run(String... args) {
         for (int i = 0; i < workerThreads; i++) {
-            Executors.newVirtualThreadPerTaskExecutor().execute(this::runWorker);
+            workers.submit(this::runWorker);
         }
     }
 

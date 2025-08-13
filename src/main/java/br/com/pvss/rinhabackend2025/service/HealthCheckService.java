@@ -24,16 +24,13 @@ public class HealthCheckService {
     @Value("${payment.timeout.ms}")
     private int paymentTimeoutMs;
 
-    private final boolean healthEnabled;
     private final long healthStaleMs;
 
     public HealthCheckService(
             PaymentProcessorClient client,
-            @Value("${health.enabled}") boolean healthEnabled,
             @Value("${health.stale.ms}") long healthStaleMs
     ) {
         this.client = client;
-        this.healthEnabled = healthEnabled;
         this.healthStaleMs = healthStaleMs;
         long now = System.currentTimeMillis();
         healthCache.put(ProcessorType.DEFAULT, new HealthState(false, Integer.MAX_VALUE, now));
@@ -57,8 +54,6 @@ public class HealthCheckService {
     }
 
     private void checkAndUpdate(ProcessorType type) {
-        if (!healthEnabled) return;
-
         long now = System.currentTimeMillis();
         HealthResponse hr = client.checkHealth(type);
 
@@ -74,18 +69,15 @@ public class HealthCheckService {
         HealthState d = healthCache.get(ProcessorType.DEFAULT);
         HealthState f = healthCache.get(ProcessorType.FALLBACK);
 
-        boolean dIsFreshAndHealthy = d != null && (now - d.timestamp()) <= healthStaleMs && d.healthy() && d.minResponseTime() <= paymentTimeoutMs;
+        boolean dFresh = d != null && (now - d.timestamp()) <= healthStaleMs;
+        boolean fFresh = f != null && (now - f.timestamp()) <= healthStaleMs;
 
-        boolean fIsFreshAndHealthy = f != null && (now - f.timestamp()) <= healthStaleMs && f.healthy() && f.minResponseTime() <= paymentTimeoutMs;
+        boolean dOk = dFresh && d.healthy() && d.minResponseTime() <= paymentTimeoutMs;
+        boolean fOk = fFresh && f.healthy() && f.minResponseTime() <= paymentTimeoutMs;
 
-        if (dIsFreshAndHealthy) {
-            return ProcessorType.DEFAULT;
-        }
+        if (dOk) return ProcessorType.DEFAULT;
+        if (fOk) return ProcessorType.FALLBACK;
 
-        if (fIsFreshAndHealthy) {
-            return ProcessorType.FALLBACK;
-        }
-
-        return null;
+        return ProcessorType.DEFAULT;
     }
 }

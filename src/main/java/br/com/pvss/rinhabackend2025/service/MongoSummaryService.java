@@ -1,4 +1,3 @@
-// src/main/java/br/com/pvss/rinhabackend2025/service/MongoSummaryService.java
 package br.com.pvss.rinhabackend2025.service;
 
 import br.com.pvss.rinhabackend2025.dto.PaymentsSummaryResponse;
@@ -7,6 +6,7 @@ import br.com.pvss.rinhabackend2025.dto.ProcessorType;
 import br.com.pvss.rinhabackend2025.dto.SummaryResponse;
 import br.com.pvss.rinhabackend2025.model.PaymentEvent;
 import br.com.pvss.rinhabackend2025.model.SummaryData;
+import com.mongodb.DuplicateKeyException;
 import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +23,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -31,7 +30,7 @@ public class MongoSummaryService {
 
     private static final Logger logger = LoggerFactory.getLogger(MongoSummaryService.class);
     private final MongoTemplate mongo;
-    private final ConcurrentMap<ProcessorType, PaymentsSummaryResponse> summaryCache = new ConcurrentHashMap<>();
+    private final Map<ProcessorType, PaymentsSummaryResponse> summaryCache = new ConcurrentHashMap<>();
 
     public MongoSummaryService(MongoTemplate mongo) {
         this.mongo = mongo;
@@ -46,6 +45,8 @@ public class MongoSummaryService {
             mongo.insert(event);
             updatePersistedSummaryData(p, cents);
             updateSummaryCache(p, cents);
+        } catch (DuplicateKeyException e) {
+            logger.warn("Duplicate payment event detected for correlationId: {}", payload.correlationId(), e);
         } catch (Exception e) {
             logger.error("Erro ao persistir pagamento ou atualizar resumo", e);
         }
