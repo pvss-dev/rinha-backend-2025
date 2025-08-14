@@ -16,6 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Service
@@ -43,14 +44,20 @@ public class ProcessorHealthManager {
 
     @PostConstruct
     public void initialCheck() {
+        try {
+            long randomDelay = ThreadLocalRandom.current().nextLong(0, 2000);
+            log.info("Aguardando {}ms antes da primeira verificação de saúde para evitar colisões.", randomDelay);
+            Thread.sleep(randomDelay);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Thread interrompida durante o delay inicial do health check.");
+        }
+
         log.info("Executando verificação de saúde inicial...");
         checkProcessorsHealth();
     }
 
-    @Scheduled(
-            initialDelayString = "${healthcheck.initial.delay.ms}",
-            fixedRateString = "${healthcheck.rate.ms}"
-    )
+    @Scheduled(fixedRateString = "${healthcheck.rate.ms}")
     public void checkProcessorsHealth() {
         log.trace("Iniciando verificação de saúde dos processadores...");
 
