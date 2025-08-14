@@ -1,8 +1,6 @@
 services:
   mongodb:
     image: mongo:7.0
-    command:
-      - --quiet
     healthcheck:
       test: [ "CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep 1 >/dev/null" ]
       interval: 5s
