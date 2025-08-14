@@ -1,6 +1,7 @@
 package br.com.pvss.rinhabackend2025.model;
 
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.math.BigDecimal;
@@ -8,6 +9,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Document("payments")
+@CompoundIndex(def = "{'requestedAt': 1, 'processor': 1}", name = "requested_at_processor_idx")
 public class PaymentModel {
 
     @Id

@@ -57,7 +57,7 @@ public class PaymentService {
         try {
             requestBody = objectMapper.writeValueAsString(request);
         } catch (JsonProcessingException e) {
-            log.error("CorrelationId: {}. Falha CRÍTICA ao serializar a requisição.", request.correlationId(), e);
+            log.error("correlationId: {}. Falha CRÍTICA ao serializar a requisição.", request.correlationId(), e);
             return CompletableFuture.failedFuture(new PaymentProcessingException("Erro interno ao preparar a requisição.", e));
         }
 
@@ -70,14 +70,14 @@ public class PaymentService {
         if (isDefaultHealthy) {
             return attemptProcessing(defaultClient, "DEFAULT", request, requestBody)
                     .exceptionallyCompose(ex -> {
-                        log.warn("CorrelationId: {}. Falha no DEFAULT, tentando FALLBACK.", request.correlationId(), ex);
+                        log.warn("correlationId: {}. Falha no DEFAULT, tentando FALLBACK.", request.correlationId(), ex);
                         return attemptProcessing(fallbackClient, "FALLBACK", request, requestBody);
                     });
         } else if (isFallbackHealthy) {
-            log.warn("CorrelationId: {}. Default instável, indo direto para o FALLBACK.", request.correlationId());
+            log.warn("correlationId: {}. Default instável, indo direto para o FALLBACK.", request.correlationId());
             return attemptProcessing(fallbackClient, "FALLBACK", request, requestBody);
         } else {
-            log.error("CorrelationId: {}. Ambos processadores estão instáveis. Rejeitando pagamento.", request.correlationId());
+            log.error("correlationId: {}. Ambos processadores estão instáveis. Rejeitando pagamento.", request.correlationId());
             return CompletableFuture.failedFuture(new PaymentProcessingException("Nenhum processador de pagamento disponível."));
         }
     }
@@ -92,15 +92,16 @@ public class PaymentService {
                                 request.correlationId(), request.amount(), Instant.now(), processorName);
 
                         return CompletableFuture.runAsync(() -> mongoTemplate.save(payment))
-                                .whenComplete((v, e) -> {
-                                    if (e == null) {
-                                        log.info("CorrelationId: {}. Pagamento processado e salvo via {}.", request.correlationId(), processorName);
-                                    } else {
-                                        log.error("CorrelationId: {}. Pagamento processado via {}, MAS FALHOU AO SALVAR NO BANCO.", request.correlationId(), processorName, e);
+                                .handle((result, exception) -> {
+                                    if (exception != null) {
+                                        log.error("correlationId: {}. Pagamento processado via {}, MAS FALHOU AO SALVAR NO BANCO.", request.correlationId(), processorName, exception);
+                                        throw new PaymentProcessingException("Falha ao persistir o pagamento processado.", exception);
                                     }
+                                    log.info("correlationId: {}. Pagamento processado e salvo via {}.", request.correlationId(), processorName);
+                                    return null;
                                 });
                     } else {
-                        log.warn("CorrelationId: {}. Processador {} recusou o pagamento.", request.correlationId(), processorName);
+                        log.warn("correlationId: {}. Processador {} recusou o pagamento.", request.correlationId(), processorName);
                         return CompletableFuture.failedFuture(new PaymentProcessingException("Processador recusou o pagamento."));
                     }
                 });
