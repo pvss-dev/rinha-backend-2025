@@ -9,21 +9,19 @@ import java.net.http.HttpClient;
 @Configuration
 public class PaymentHttpClientConfig {
 
-    @Bean(name = "paymentProcessorDefaultClient")
-    public PaymentProcessorClient defaultClient(
-            @Value("${payment.processor.default.url}")
-            String url,
-            HttpClient httpClient
+    @Bean("paymentProcessorDefaultClient")
+    public PaymentProcessorManualClient paymentProcessorDefaultClient(
+            HttpClient httpClient,
+            @Value("${payment.processor.default.url}") String baseUrl
     ) {
-        return new PaymentProcessorHttpClientImpl(url, httpClient);
+        return new PaymentProcessorHttpClientImpl(baseUrl, httpClient);
     }
 
-    @Bean(name = "paymentProcessorFallbackClient")
-    public PaymentProcessorClient fallbackClient(
-            @Value("${payment.processor.fallback.url}")
-            String url,
-            HttpClient httpClient
+    @Bean("paymentProcessorFallbackClient")
+    public PaymentProcessorManualClient paymentProcessorFallbackClient(
+            HttpClient httpClient,
+            @Value("${payment.processor.fallback.url}") String baseUrl
     ) {
-        return new PaymentProcessorHttpClientImpl(url, httpClient);
+        return new PaymentProcessorHttpClientImpl(baseUrl, httpClient);
     }
 }

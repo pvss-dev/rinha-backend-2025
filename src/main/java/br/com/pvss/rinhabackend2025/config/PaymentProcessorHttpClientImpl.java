@@ -7,27 +7,24 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 
-import static java.net.http.HttpRequest.BodyPublishers.ofString;
-import static java.time.Duration.ofMillis;
-
-public record PaymentProcessorHttpClientImpl(String baseUrl, HttpClient httpClient) implements PaymentProcessorClient {
+public record PaymentProcessorHttpClientImpl(
+        String baseUrl,
+        HttpClient httpClient
+) implements PaymentProcessorManualClient {
 
     @Override
-    public boolean processPayment(String pagamento) {
-        try {
-            HttpRequest httpRequest = HttpRequest.newBuilder()
-                    .timeout(ofMillis(180))
-                    .uri(URI.create(baseUrl + "/payments"))
-                    .POST(ofString(pagamento))
-                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                    .build();
+    public CompletableFuture<Boolean> processPaymentAsync(String requestJson) {
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(this.baseUrl + "/payments"))
+                .timeout(Duration.ofSeconds(2))
+                .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                .build();
 
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            return response.statusCode() == 200;
-
-        } catch (Exception ignored) {
-            return false;
-        }
+        return this.httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
+                .thenApply(response -> response.statusCode() >= 200 && response.statusCode() < 300);
     }
 }
