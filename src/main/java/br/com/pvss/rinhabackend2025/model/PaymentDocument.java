@@ -1,13 +1,13 @@
 package br.com.pvss.rinhabackend2025.model;
 
 import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 import org.springframework.data.mongodb.core.mapping.FieldType;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
 
 @Document("payments")
 public class PaymentDocument {
@@ -15,8 +15,7 @@ public class PaymentDocument {
     @Id
     private String id;
 
-    @Indexed(unique = true)
-    private String correlationId;
+    private UUID correlationId;
 
     @Field(targetType = FieldType.DECIMAL128)
     private BigDecimal amount;
@@ -34,10 +33,10 @@ public class PaymentDocument {
     }
 
     public String getCorrelationId() {
-        return correlationId;
+        return correlationId.toString();
     }
 
-    public void setCorrelationId(String correlationId) {
+    public void setCorrelationId(UUID correlationId) {
         this.correlationId = correlationId;
     }
 

@@ -22,7 +22,7 @@ public class PaymentSummaryService {
         this.mongoTemplate = mongoTemplate;
     }
 
-    public PaymentSummaryResponse summary(Instant from, Instant to) {
+    public PaymentSummaryResponse getSummary(Instant from, Instant to) {
         Criteria dateCriteria = Criteria.where("createdAt")
                 .gte(from)
                 .lte(to);

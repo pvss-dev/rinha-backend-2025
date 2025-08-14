@@ -11,7 +11,8 @@ public class PaymentHttpClientConfig {
 
     @Bean(name = "paymentProcessorDefaultClient")
     public PaymentProcessorClient defaultClient(
-            @Value("${payment.processor.default.url}") String url,
+            @Value("${payment.processor.default.url}")
+            String url,
             HttpClient httpClient
     ) {
         return new PaymentProcessorHttpClientImpl(url, httpClient);
@@ -19,7 +20,8 @@ public class PaymentHttpClientConfig {
 
     @Bean(name = "paymentProcessorFallbackClient")
     public PaymentProcessorClient fallbackClient(
-            @Value("${payment.processor.fallback.url}") String url,
+            @Value("${payment.processor.fallback.url}")
+            String url,
             HttpClient httpClient
     ) {
         return new PaymentProcessorHttpClientImpl(url, httpClient);

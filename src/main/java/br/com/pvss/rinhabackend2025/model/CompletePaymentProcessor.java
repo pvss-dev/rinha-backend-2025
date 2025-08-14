@@ -1,9 +1,9 @@
 package br.com.pvss.rinhabackend2025.model;
 
-import br.com.pvss.rinhabackend2025.dto.ProcessorPaymentRequest;
+import br.com.pvss.rinhabackend2025.dto.PaymentProcessorRequest;
 
 public record CompletePaymentProcessor(
         String paymentJson,
-        ProcessorPaymentRequest request
+        PaymentProcessorRequest paymentProcessorRequest
 ) {
 }

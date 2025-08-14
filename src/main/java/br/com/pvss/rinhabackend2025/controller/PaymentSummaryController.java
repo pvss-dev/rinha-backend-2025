@@ -13,19 +13,19 @@ import java.time.Instant;
 @RequestMapping("/payments-summary")
 public class PaymentSummaryController {
 
-    private final PaymentSummaryService summary;
+    private final PaymentSummaryService pagamentoSummaryService;
 
-    public PaymentSummaryController(PaymentSummaryService summary) {
-        this.summary = summary;
+    public PaymentSummaryController(PaymentSummaryService pagamentoSummaryService) {
+        this.pagamentoSummaryService = pagamentoSummaryService;
     }
 
     @GetMapping
-    public PaymentSummaryResponse getSummary(
-            @RequestParam(value = "from", required = false) Instant from,
-            @RequestParam(value = "to", required = false) Instant to
+    public PaymentSummaryResponse summary(
+            @RequestParam(value = "from", required = false)
+            Instant from,
+            @RequestParam(value = "to", required = false)
+            Instant to
     ) {
-        Instant effectiveFrom = (from != null) ? from : Instant.EPOCH;
-        Instant effectiveTo = (to != null) ? to : Instant.now();
-        return summary.summary(effectiveFrom, effectiveTo);
+        return pagamentoSummaryService.getSummary(from, to);
     }
 }
