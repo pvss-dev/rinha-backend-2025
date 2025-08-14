@@ -13,7 +13,7 @@ public class HttpClientConfig {
     public HttpClient httpClient() {
         return HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofMillis(60))
+                .connectTimeout(Duration.ofMillis(250))
                 .build();
     }
 }
