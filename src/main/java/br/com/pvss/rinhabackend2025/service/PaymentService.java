@@ -1,6 +1,7 @@
 package br.com.pvss.rinhabackend2025.service;
 
 import br.com.pvss.rinhabackend2025.config.PaymentProcessorManualClient;
+import br.com.pvss.rinhabackend2025.dto.ExternalPaymentPayload;
 import br.com.pvss.rinhabackend2025.dto.HealthStatus;
 import br.com.pvss.rinhabackend2025.dto.PaymentRequest;
 import br.com.pvss.rinhabackend2025.dto.PaymentSummaryResponse;
@@ -55,7 +56,12 @@ public class PaymentService {
     public CompletableFuture<Void> processPayment(PaymentRequest request) {
         String requestBody;
         try {
-            requestBody = objectMapper.writeValueAsString(request);
+            ExternalPaymentPayload payload = new ExternalPaymentPayload(
+                    request.correlationId(),
+                    request.amount(),
+                    Instant.now()
+            );
+            requestBody = objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
             log.error("correlationId: {}. Falha CRÍTICA ao serializar a requisição.", request.correlationId(), e);
             return CompletableFuture.failedFuture(new PaymentProcessingException("Erro interno ao preparar a requisição.", e));
